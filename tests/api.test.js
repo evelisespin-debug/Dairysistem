@@ -247,3 +247,19 @@ test('CCS do painel = tanque do último controle (laboratório) ou tanque calcul
   const rep = (await t.call('dono', 'GET', '/api/reports/milk-control')).body;
   assert.ok(rep.rows.every((r) => !('ccs12' in r)));
 });
+
+test('status "parida": DEL curto E sem CCS no controle anterior; "novilha parida": sem histórico', async () => {
+  // 5 vacas por controle para o controle contar. Controle 1: todas testadas. Controle 2 (um mês depois): P2 e P3 pariram e faltaram no controle 1 (P2 tinha CCS mais antiga; P3 nunca).
+  const c0 = 'Brinco;Data;CCS;Leite\nP1;10/01/2028;100;30\nP2;10/01/2028;300;30\nP4;10/01/2028;100;30\nP5;10/01/2028;100;30\nP6;10/01/2028;100;30\n';
+  const c1 = 'Brinco;Data;CCS;Leite;DEL\nP1;10/02/2028;100;30;300\nP4;10/02/2028;100;30;300\nP5;10/02/2028;100;30;300\nP6;10/02/2028;100;30;300\nP7;10/02/2028;100;30;300\n';
+  const c2 = 'Brinco;Data;CCS;Leite;DEL\nP1;10/03/2028;100;30;330\nP2;10/03/2028;150;30;20\nP3;10/03/2028;500;30;25\nP4;10/03/2028;300;30;20\nP5;10/03/2028;100;30;330\nP6;10/03/2028;100;30;330\n';
+  for (const c of [c0, c1, c2]) await t.upload('dono', c, { commit: '1' });
+  const rep = (await t.call('dono', 'GET', '/api/reports/milk-control')).body;
+  const by = Object.fromEntries(rep.rows.map((r) => [r.tag, r]));
+  assert.equal(by.P2.parida, true); assert.equal(by.P2.status, 'curada'); assert.equal(by.P2.novilha_parida, false);   // tinha 300, agora 150, faltou o controle anterior
+  assert.equal(by.P3.parida, true); assert.equal(by.P3.novilha_parida, true); assert.equal(by.P3.status, 'acima');     // nunca testada, agora 500
+  assert.equal(by.P4.parida, false); assert.equal(by.P4.status, 'nova');                                             // DEL 20, mas tinha CCS no controle anterior: status normal
+  const f = (s) => t.call('dono', 'GET', `/api/reports/milk-control?status=${s}`).then((r) => r.body.rows.map((x) => x.tag));
+  assert.ok((await f('paridas_curadas')).includes('P2')); assert.ok((await f('novilhas_paridas_infectadas')).includes('P3'));
+  assert.ok((await f('nova')).includes('P4')); assert.ok(!(await f('paridas_infectadas')).includes('P4'));
+});

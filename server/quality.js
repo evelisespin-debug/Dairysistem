@@ -293,11 +293,18 @@ export async function milkControl(db, { group = 'todas', status = 'todas', lot }
     if (!inGroup(a, group, last.d === latest, delNow)) continue;
     if (last.d !== latest && group !== 'todas') { /* mantém: vaca sem teste na última coleta segue listada */ }
     const st = qualityStatus(last.value, prev?.value, goal);
+    // "Parida": DEL curto E intervalo sem CCS (a secagem): sem teste no controle imediatamente anterior. Se ela já tinha CCS do mês anterior, vale o status normal.
+    // "Novilha parida": o mesmo, mas sem nenhum histórico de CCS (primeira lactação).
+    const prevControl = controlDates[controlDates.indexOf(last.d) - 1];
+    const gap = prevControl != null && !a.tests.some((x) => x.d === prevControl);
+    const freshDel = delNow != null && delNow <= 45;
+    const novilhaParida = freshDel && prev == null;
+    const paridaStatus = freshDel && (prev == null || gap);
     const byMonth = {};
     for (const x of a.tests) byMonth[x.d.slice(0, 7)] = x.value;      // última do mês
     rows.push({
       id: a.id, tag: a.tag, lot: a.lot, lac: a.lactation_number,
-      del: delNow, parida: delNow != null && delNow <= 45,
+      del: delNow, parida: paridaStatus, novilha_parida: novilhaParida, gap,
       months: months.map((k) => byMonth[k] ?? null), status: st,
       last: last.value,
       stale: last.d !== latest, missed: controlDates.filter((d) => d > last.d).length, hint: absenceHint(controlDates.filter((d) => d > last.d).length), last_test: last.d, milk: last.d === latest ? milk.get(a.id) ?? null : null, impact: null,
@@ -308,13 +315,14 @@ export async function milkControl(db, { group = 'todas', status = 'todas', lot }
   if (tankSum > 0) rows.forEach((r) => { if (r.milk != null) r.impact = (100 * r.last * r.milk) / tankSum; });
   const dist = { sadia: 0, nova: 0, cronica: 0, curada: 0, acima: 0, sem_historico: 0 };
   rows.forEach((r) => { if (r.status) dist[r.status]++; });
-  // "Sadias", "Curadas", "Novas infecções" e "Crônicas" são as vacas fora do início da lactação; as recém-paridas (DEL até 45) têm filtros próprios
+  // "Sadias", "Curadas", "Novas infecções" e "Crônicas" são as vacas com CCS no controle anterior; as paridas (DEL curto e intervalo sem CCS) e as novilhas paridas (sem histórico) têm filtros próprios
   const infected = (r) => r.status === 'nova' || r.status === 'cronica' || r.status === 'acima';
   const accept = {
     todas: () => true, acima200: (r) => r.last >= goal,
     sadias: (r) => !r.parida && r.status === 'sadia', curadas: (r) => !r.parida && r.status === 'curada', nova: (r) => !r.parida && r.status === 'nova', cronicas: (r) => !r.parida && r.status === 'cronica',
-    paridas_sadias: (r) => r.parida && r.status === 'sadia', paridas_curadas: (r) => r.parida && r.status === 'curada', paridas_infectadas: (r) => r.parida && (r.status === 'nova' || r.status === 'acima'), paridas_cronicas: (r) => r.parida && r.status === 'cronica',
-    novilhas_paridas_sadias: (r) => r.parida && r.lac === 1 && r.status === 'sadia', novilhas_paridas_infectadas: (r) => r.parida && r.lac === 1 && infected(r),
+    paridas_sadias: (r) => r.parida && !r.novilha_parida && r.status === 'sadia', paridas_curadas: (r) => r.parida && !r.novilha_parida && r.status === 'curada',
+    paridas_infectadas: (r) => r.parida && !r.novilha_parida && r.status === 'nova', paridas_cronicas: (r) => r.parida && !r.novilha_parida && r.status === 'cronica',
+    novilhas_paridas_sadias: (r) => r.novilha_parida && r.status === 'sem_historico', novilhas_paridas_infectadas: (r) => r.novilha_parida && r.status === 'acima',
   }[status] || (() => true);
   const totalCows = rows.length;
   rows = rows.filter(accept);
