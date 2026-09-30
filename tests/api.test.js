@@ -114,7 +114,8 @@ test('mapa do leite (tanque) e dashboards', async () => {
   const ccs = s.cards.find((c) => c.code === 'CCS');
   assert.equal(ccs.date, '2026-04-05');
   assert.equal(ccs.n, 2);
-  assert.ok(Math.abs(ccs.value - Math.exp((Math.log(180) + Math.log(900)) / 2)) < 1, 'média geométrica');
+  assert.equal(ccs.value, null, 'sem tanque nem leite nessa data: não inventa média');
+  assert.equal(ccs.name, 'CCS do tanque');
   const cbt = s.tank.find((x) => x.code === 'CBT');
   assert.equal(cbt.value, 320); assert.equal(cbt.status, 'alerta');
   const rk = (await t.call('veterinaria', 'GET', '/api/dashboard/ranking?code=CCS')).body;
@@ -228,4 +229,21 @@ test('painel usa sempre o último controle enviado, mesmo com poucas vacas; digi
   assert.equal(s.cards.find((c) => c.code === 'CCS').date, '2026-11-15');
   assert.equal(s.last_control, '2026-11-15');
   assert.ok(s.last_import.filename);
+});
+
+test('CCS do painel = tanque do último controle (laboratório) ou tanque calculado pelas vacas; nunca média', async () => {
+  // controle com laboratório na mesma data
+  await t.upload('dono', 'Brinco;Data;CCS;Leite\nT1;10/12/2026;100;30\nT2;10/12/2026;500;20\nT3;10/12/2026;300;10\n', { commit: '1' });
+  await t.upload('dono', 'Data;CCS\n10/12/2026;333\n', { scope: 'tank', commit: '1' });
+  let s = (await t.call('dono', 'GET', '/api/dashboard/summary')).body;
+  let c = s.cards.find((x) => x.code === 'CCS');
+  assert.equal(c.date, '2026-12-10'); assert.equal(c.value, 333); assert.equal(c.basis, 'laboratório');
+  // novo controle sem laboratório: usa CCS x leite / leite
+  await t.upload('dono', 'Brinco;Data;CCS;Leite\nT1;10/01/2027;100;30\nT2;10/01/2027;500;20\nT3;10/01/2027;300;10\n', { commit: '1' });
+  s = (await t.call('dono', 'GET', '/api/dashboard/summary')).body; c = s.cards.find((x) => x.code === 'CCS');
+  assert.equal(c.date, '2027-01-10'); assert.equal(c.basis, 'calculada pelas vacas');
+  assert.equal(Math.round(c.value), Math.round((100 * 30 + 500 * 20 + 300 * 10) / 60));    // 267, e não a média simples (300)
+  assert.equal(Math.round(c.previous), 333);
+  const rep = (await t.call('dono', 'GET', '/api/reports/milk-control')).body;
+  assert.ok(rep.rows.every((r) => !('ccs12' in r)));
 });

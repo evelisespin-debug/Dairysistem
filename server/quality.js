@@ -68,6 +68,21 @@ async function valuesOn(db, code, date, lot) {
   return rows.map((r) => r.value);
 }
 
+// CCS do tanque num controle: valor do laboratório (mapa do leite) na data; sem ele, o que o tanque teria pelas vacas (CCS x leite / leite).
+async function tankCcsAt(db, date, lot) {
+  if (!lot) {
+    const lab = await db.query(`select value from analyses where scope = 'tank' and type_code = 'CCS' and analysis_date = $1 and deleted_at is null`, [date]);
+    if (lab.rows.length) return { value: lab.rows[0].value, basis: 'laboratório' };
+  }
+  const params = [date]; const lotSql = lot ? (params.push(lot), ` and a.lot = $${params.length}`) : '';
+  const { rows: [r] } = await db.query(
+    `select sum(c.value * m.value) / nullif(sum(m.value), 0) v from analyses c
+       join analyses m on m.animal_id = c.animal_id and m.analysis_date = c.analysis_date and m.type_code = 'LEITE' and m.scope = 'animal' and m.deleted_at is null
+       join animals a on a.id = c.animal_id and a.deleted_at is null
+      where c.scope = 'animal' and c.type_code = 'CCS' and c.analysis_date = $1 and c.deleted_at is null ${lotSql}`, params);
+  return r?.v != null ? { value: r.v, basis: 'calculada pelas vacas' } : null;
+}
+
 export async function summary(db, { lot } = {}) {
   const types = await getTypes(db);
   const cards = [];
@@ -78,13 +93,18 @@ export async function summary(db, { lot } = {}) {
     const pv = prev ? await valuesOn(db, t.code, prev, lot) : [];
     const st = { ok: 0, atencao: 0, alerta: 0 };
     vals.forEach((v) => st[statusOf(t, v)]++);
-    const value = mean(vals, t.geometric);
-    const previous = pv.length ? mean(pv, t.geometric) : null;
+    let value = mean(vals, false);
+    let previous = pv.length ? mean(pv, false) : null;
+    let basis = null; let name = t.name;
+    if (t.code === 'CCS') {                                   // CCS nunca é média: vale o valor do tanque no último controle
+      const cur = await tankCcsAt(db, d, lot); const pr = prev ? await tankCcsAt(db, prev, lot) : null;
+      value = cur?.value ?? null; previous = pr?.value ?? null; basis = cur?.basis ?? null; name = 'CCS do tanque';
+    }
     cards.push({
-      code: t.code, name: t.name, unit: t.unit, decimals: t.decimals, geometric: t.geometric,
+      code: t.code, name, unit: t.unit, decimals: t.decimals, geometric: false, basis,
       date: d, previous_date: prev || null, n: vals.length,
       value: round(value, t.decimals + 1), previous: round(previous, t.decimals + 1),
-      status_herd: statusOf(t, value),
+      status_herd: value == null ? 'ok' : statusOf(t, value, t.code === 'CCS' ? 'tank' : 'animal'),
       counts: st,
       pct_atencao: round((100 * st.atencao) / vals.length, 1),
       pct_alerta: round((100 * st.alerta) / vals.length, 1),
@@ -278,7 +298,7 @@ export async function milkControl(db, { group = 'todas', status = 'todas', lot }
       id: a.id, tag: a.tag, lot: a.lot, lac: a.lactation_number,
       del: a.calving_date ? daysBetween(a.calving_date, latest) : null,
       months: months.map((k) => byMonth[k] ?? null), status: st,
-      ccs12: round(mean(a.tests.map((x) => x.value), true), 0), last: last.value,
+      last: last.value,
       stale: last.d !== latest, missed: controlDates.filter((d) => d > last.d).length, hint: absenceHint(controlDates.filter((d) => d > last.d).length), last_test: last.d, milk: last.d === latest ? milk.get(a.id) ?? null : null, impact: null,
     });
   }

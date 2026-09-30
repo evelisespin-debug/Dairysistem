@@ -67,7 +67,7 @@ export async function management(db, { controls = 12, lot } = {}) {
     series.push({
       date: d, tested: tested.length, healthy: tested.length - high, high, high400: high4,
       pct_healthy: pct(tested.length - high, tested.length), pct_high: pct(high, tested.length), pct_high400: pct(high4, tested.length),
-      gm_ccs: round(mean(tested.map((r) => r.ccs), true), 0), tank_lab: tankLab.get(d) ?? null, tank_calc: sumM ? round(sumCM / sumM, 0) : null,
+      tank_lab: tankLab.get(d) ?? null, tank_calc: sumM ? round(sumCM / sumM, 0) : null,
       ...st, with_prev: withPrev,
       pct_sadia: pct(st.sadia, withPrev), pct_nova: pct(st.nova, withPrev), pct_cronica: pct(st.cronica, withPrev), pct_curada: pct(st.curada, withPrev),
       incidence: pct(st.nova, st.nova + st.sadia), cure_rate: pct(st.curada, st.curada + st.cronica),
