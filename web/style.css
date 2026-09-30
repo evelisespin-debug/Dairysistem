@@ -87,3 +87,13 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
   header.top img{display:none}
   #toast{bottom:20px}
 }
+
+.kpi-panel{background:#0b4a5c;border-radius:var(--radius);padding:12px;margin-bottom:14px;box-shadow:0 2px 5px rgba(0,0,0,.12)}
+.tiles{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.tile{background:var(--card);border-radius:10px;padding:10px 12px;text-align:center;display:flex;flex-direction:column;gap:2px}
+.tile .tl{font-size:.82rem;font-weight:700;color:var(--ink)}
+.tile .tv{font-size:1.9rem;font-weight:800;color:var(--green);line-height:1.15}
+.tile .ts{font-size:.75rem;color:var(--muted)}
+.tile .d{font-size:.75rem}
+.reading{margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:8px}
+.reading li{line-height:1.45}

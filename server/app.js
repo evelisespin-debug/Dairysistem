@@ -11,6 +11,7 @@ import { saveManualAnalysis } from './analysisService.js';
 import { readRaw, tableFromRaw, buildRecords } from './importer.js';
 import { parseApcbrh } from './apcbrh.js';
 import * as Q from './quality.js';
+import { management } from './management.js';
 
 const STATUS = ['lactacao', 'seca', 'novilha', 'bezerra', 'descartada', 'vendida', 'morta'];
 
@@ -356,6 +357,13 @@ export async function buildApp({ pool, farm, logger = false }) {
         [existing.map((t) => t.toUpperCase()), existing.map((t) => metaOf(t).lot ?? null), existing.map((t) => metaOf(t).lac ?? null),
           existing.map((t) => metaOf(t).calving ?? null), existing.map((t) => metaOf(t).registry ?? null), existing.map((t) => metaOf(t).status ?? null)]);
       const ids = new Map((await client.query('select id, upper(tag) t from animals where deleted_at is null')).rows.map((r) => [r.t, r.id]));
+      // histórico de lactações: cada parto informado vira uma linha (base do DEL de cada teste)
+      const lacs = [...parsed.meta.values()].filter((m) => m.calving && ids.has(m.tag.toUpperCase()));
+      if (lacs.length) await client.query(
+        `insert into animal_lactations (animal_id, calving_date, lactation_number)
+         select x.a, x.c::date, x.l from unnest($1::bigint[], $2::text[], $3::int[]) as x(a, c, l)
+         on conflict (animal_id, calving_date) do update set lactation_number = coalesce(excluded.lactation_number, animal_lactations.lactation_number)`,
+        [lacs.map((m) => ids.get(m.tag.toUpperCase())), lacs.map((m) => m.calving), lacs.map((m) => m.lac ?? null)]);
       const rows = records.map((r) => ({ s: r.scope, a: r.scope === 'animal' ? ids.get(r.tag.toUpperCase()) : null, d: r.date, c: r.code, v: r.value }));
       let inserted = 0; let updated = 0;
       for (let i = 0; i < rows.length; i += 1000) {
@@ -403,6 +411,7 @@ export async function buildApp({ pool, farm, logger = false }) {
   app.get('/api/dashboard/lots', { preHandler: dash }, async () => Q.lots(pool));
   app.get('/api/reports/milk-control', { preHandler: dash }, async (req, reply) =>
     (await Q.milkControl(pool, { group: req.query.group, status: req.query.status, lot: req.query.lot })) || fail(reply, 404, 'Tipo CCS não configurado.'));
+  app.get('/api/dashboard/management', { preHandler: dash }, async (req) => management(pool, { controls: req.query.controls, lot: req.query.lot }));
   app.get('/api/tank', { preHandler: dash }, async () => Q.tankResults(pool));
   // apagar um resultado do tanque (todas as análises daquela data) — só o dono
   app.delete('/api/tank/:date', { preHandler: guard('apagar') }, async (req, reply) => {
