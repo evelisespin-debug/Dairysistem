@@ -7,6 +7,7 @@
   "modules": {
     "quality": true,
     "animals": true,
+    "stock": true,
     "production": false,
     "events": false,
     "finance": false

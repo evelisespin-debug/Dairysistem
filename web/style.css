@@ -70,3 +70,18 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
   header.top{gap:18px}
   #toast{bottom:20px}
 }
+
+/* ---- estoque ---- */
+.netbar{display:none;position:sticky;top:0;z-index:40;background:var(--bad);color:#fff;padding:10px 16px;text-align:center;font-size:.92rem}
+.bad{color:var(--bad)}
+tr.inativo td{opacity:.55}
+input.low,select.low{background:var(--warn-bg);border-color:var(--warn)}
+.dropzone{border:2px dashed var(--line);border-radius:var(--radius);padding:34px 16px;text-align:center;cursor:pointer}
+.dropzone:hover,.dropzone.over,.dropzone:focus{border-color:var(--brand);background:var(--ok-bg);outline:none}
+.card.line{border-left:4px solid var(--brand)}
+.stickybar{position:sticky;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom));display:flex;gap:10px;padding:10px 0;background:linear-gradient(transparent,var(--bg) 30%);z-index:4}
+.stickybar button{flex:1}
+.modal.light{background:rgba(0,0,0,.55)}
+details summary{cursor:pointer;padding:6px 0}
+@media (min-width:800px){.stickybar{bottom:0}}
+.row.nowrap{flex-wrap:nowrap}.row.nowrap>*{min-width:0}

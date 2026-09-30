@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const ROLES = ['dono', 'encarregado', 'funcionario', 'veterinaria'];
+const ROLES = ['dono', 'gerente', 'almoxarife', 'encarregado', 'funcionario', 'veterinaria'];
 
 // A fazenda é escolhida por variável de ambiente (FARM=mariana) ou caminho direto (FARM_CONFIG).
 // Nada de nome de fazenda fica escrito no código: tudo vem de farms/<slug>/farm.config.json.
@@ -16,7 +16,7 @@ export function loadFarmConfig(env = process.env) {
   cfg.dir = path.dirname(file);
   for (const k of ['slug', 'name']) if (!cfg[k]) throw new Error(`farm.config.json: falta "${k}"`);
   cfg.timezone ||= 'America/Sao_Paulo';
-  cfg.modules = { quality: true, animals: true, ...(cfg.modules || {}) };
+  cfg.modules = { quality: true, animals: true, stock: true, ...(cfg.modules || {}) };
   cfg.initialUsers ||= [];
   for (const u of cfg.initialUsers) {
     if (!u.email || !u.name || !ROLES.includes(u.role)) {

@@ -1,4 +1,5 @@
 // Site da fazenda (PWA). JavaScript simples, sem framework.
+import { estoqueViews } from './estoque.js';
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const nf = (v, d = 0) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }));
@@ -6,7 +7,7 @@ const fdate = (s) => (s ? s.split('-').reverse().join('/') : '—');
 const today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
 const LABEL = { ok: 'Normal', atencao: 'Atenção', alerta: 'Alerta' };
 const chip = (s) => `<span class="chip ${s}">${LABEL[s]}</span>`;
-const ROLE = { dono: 'Dono', encarregado: 'Encarregado', funcionario: 'Funcionário', veterinaria: 'Veterinária' };
+const ROLE = { dono: 'Proprietário', gerente: 'Gerente', almoxarife: 'Almoxarife', encarregado: 'Encarregado de setor', funcionario: 'Funcionário', veterinaria: 'Veterinária' };
 const STATUS = { lactacao: 'Lactação', seca: 'Seca', novilha: 'Novilha', bezerra: 'Bezerra', descartada: 'Descartada', vendida: 'Vendida', morta: 'Morta' };
 
 const S = { farm: null, user: null, token: localStorage.getItem('token'), charts: [] };
@@ -74,7 +75,9 @@ const monthLabel = (m) => { const [y, mo] = m.split('-'); return `${['jan', 'fev
 function shell(html, active) {
   const items = [];
   if (can('relatorios')) items.push(['painel', '📊', 'Painel']);
-  items.push(['animais', '🐄', 'Animais'], ['lancar', '➕', 'Lançar']);
+  if (can('estoque_ver')) items.push(['estoque', '📦', 'Estoque']);
+  if (can('ver_ficha')) items.push(['animais', '🐄', 'Animais']);
+  if (can('lancar')) items.push(['lancar', '➕', 'Lançar']);
   if (can('importar')) items.push(['importar', '📥', 'Importar']);
   items.push(['mais', '☰', 'Mais']);
   $('#app').innerHTML = `
@@ -102,7 +105,7 @@ function viewLogin(message) {
       const email = $('#em').value.trim();
       const r = await api('/api/login', { method: 'POST', body: { email, [usePin ? 'pin' : 'password']: $('#pw').value } });
       S.token = r.token; S.user = r.user; localStorage.setItem('token', r.token); localStorage.setItem('lastEmail', email);
-      location.hash = r.user.must_change_password ? '#/senha' : (r.user.permissions.includes('relatorios') ? '#/painel' : '#/animais'); route(); syncQueue();
+      location.hash = r.user.must_change_password ? '#/senha' : home(r.user); route(); syncQueue();
     } catch (e) { $('#e').innerHTML = err(e); btn.disabled = false; }
   };
 }
@@ -119,7 +122,7 @@ function viewPassword(first) {
     <form id="p" class="card"><h2>PIN (opcional)</h2><p class="muted small">Um número de 4 a 6 dígitos para entrar mais rápido no celular.</p>
     <label>Sua senha</label><input id="pp" type="password" required><label>PIN novo (deixe vazio para remover)</label><input id="pn" inputmode="numeric" pattern="\\d{4,6}" maxlength="6"><div id="e2"></div>
     <div style="margin-top:14px"><button>Salvar PIN</button></div></form>`, 'mais');
-  $('#f').onsubmit = async (ev) => { ev.preventDefault(); try { await api('/api/me/password', { method: 'POST', body: { current: $('#a').value, next: $('#b').value } }); S.user = await api('/api/me'); toast('Senha alterada.'); location.hash = can('relatorios') ? '#/painel' : '#/animais'; } catch (e) { $('#e').innerHTML = err(e); } };
+  $('#f').onsubmit = async (ev) => { ev.preventDefault(); try { await api('/api/me/password', { method: 'POST', body: { current: $('#a').value, next: $('#b').value } }); S.user = await api('/api/me'); toast('Senha alterada.'); location.hash = home(S.user); } catch (e) { $('#e').innerHTML = err(e); } };
   $('#p').onsubmit = async (ev) => { ev.preventDefault(); try { await api('/api/me/pin', { method: 'POST', body: { password: $('#pp').value, pin: $('#pn').value } }); toast('PIN salvo.'); $('#p').reset(); } catch (e) { $('#e2').innerHTML = err(e); } };
 }
 
@@ -132,7 +135,7 @@ const delta = (c) => {
   return `<div class="d" style="color:var(--${Math.abs(pct) < 1 ? 'muted' : bad ? 'bad' : 'ok'})">${diff > 0 ? '▲' : diff < 0 ? '▼' : '='} ${nf(Math.abs(pct), 1)}% vs. coleta anterior</div>`;
 };
 async function viewPainel() {
-  if (!can('relatorios')) return (location.hash = '#/animais');
+  if (!can('relatorios')) return (location.hash = home(S.user));
   shell('<h1>Painel de qualidade do leite</h1><div class="muted">Carregando…</div>', 'painel');
   try {
     let lot = sessionStorage.getItem('lot') || '';
@@ -197,13 +200,13 @@ async function viewPainel() {
 }
 
 // ---------------- leitura de código de barras / QR ----------------
-async function scanCode() {
+async function scanCode(hint = 'Aponte para o código do brinco') {
   if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) { toast('Leitura pela câmera não é suportada neste aparelho. Digite o brinco.'); return null; }
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }); } catch { toast('Sem permissão para usar a câmera.'); return null; }
   const det = new BarcodeDetector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'itf', 'codabar'] });
   const modal = document.createElement('div'); modal.className = 'modal';
-  modal.innerHTML = '<video playsinline muted></video><div style="color:#fff">Aponte para o código do brinco</div><button id="cx">Cancelar</button>';
+  modal.innerHTML = `<video playsinline muted></video><div style="color:#fff">${esc(hint)}</div><button id="cx">Cancelar</button>`;
   document.body.append(modal); const v = $('video', modal); v.srcObject = stream; await v.play();
   return new Promise((resolve) => {
     let done = false; const end = (val) => { done = true; stream.getTracks().forEach((t) => t.stop()); modal.remove(); resolve(val); };
@@ -321,7 +324,7 @@ async function viewLancar() {
 
 // ---------------- importar ----------------
 async function viewImportar() {
-  if (!can('importar')) return (location.hash = '#/animais');
+  if (!can('importar')) return (location.hash = home(S.user));
   shell(`<h1>Importar planilha</h1><form id="f" class="card">
     <p class="muted small">Envie o arquivo do controle leiteiro (por vaca) ou o mapa do leite do laticínio (tanque), em Excel (.xlsx) ou CSV. O sistema reconhece colunas como Brinco, Data, CCS, Gordura, Proteína e CBT. Enviar o mesmo arquivo de novo não duplica nada.</p>
     <label>O que é este arquivo?</label><select id="sc"><option value="animal">Análises por vaca (controle leiteiro)</option><option value="tank">Mapa do leite (tanque / laticínio)</option></select>
@@ -431,13 +434,23 @@ async function viewAuditoria() {
 }
 
 // ---------------- rotas ----------------
+const home = (u) => (u.permissions.includes('relatorios') ? '#/painel' : u.permissions.includes('ver_ficha') ? '#/animais' : '#/estoque');
+const estoque = estoqueViews({ S, $, esc, nf, fdate, today, toast, shell, err, can, scanCode });
+const ESTOQUE_SUB = ['entrada', 'notas', 'nota', 'item', 'itens', 'cadastros'];
 function route() {
   killCharts();
   if (!S.user) return viewLogin();
   const [path] = location.hash.slice(2).split('?'); const [page, arg] = path.split('/');
+  if (page === 'estoque') {
+    if (S.user.must_change_password) return viewPassword(true);
+    if (!can('estoque_ver')) return (location.hash = home(S.user));
+    const [, sub, id] = path.split('/'); const key = ESTOQUE_SUB.includes(sub) ? `estoque/${sub}` : 'estoque';
+    return estoque[key](id);
+  }
   if (S.user.must_change_password && page !== 'senha') return viewPassword(true);
   const views = { painel: viewPainel, animais: viewAnimais, animal: () => viewAnimal(arg), lancar: viewLancar, importar: viewImportar, mais: viewMais, senha: () => viewPassword(false), config: viewConfig, usuarios: viewUsuarios, auditoria: viewAuditoria };
-  (views[page] || (can('relatorios') ? viewPainel : viewAnimais))();
+  if (views[page]) return views[page]();
+  const h = home(S.user); if (location.hash !== h) location.hash = h; else (can('relatorios') ? viewPainel : can('ver_ficha') ? viewAnimais : estoque.estoque)();
 }
 addEventListener('hashchange', route);
 

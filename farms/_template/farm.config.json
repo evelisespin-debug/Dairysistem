@@ -4,7 +4,8 @@
   "logo": "logo.svg",
   "domain": "exemplo.seudominio.com.br",
   "timezone": "America/Sao_Paulo",
-  "modules": { "quality": true, "animals": true, "production": false, "events": false, "finance": false },
+  "modules": { "quality": true, "animals": true,
+    "stock": true, "production": false, "events": false, "finance": false },
   "initialUsers": [
     { "name": "Dono da Fazenda", "email": "dono@exemplo.com.br", "role": "dono" },
     { "name": "Veterinária", "email": "vet@exemplo.com.br", "role": "veterinaria" }

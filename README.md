@@ -35,6 +35,8 @@ Formato "longo" (colunas Tipo + Valor) também funciona. Reenviar o mesmo arquiv
 Exemplos em `docs/exemplos/`. Para o mapa do leite do laticínio, escolha "Mapa do leite (tanque)".
 Novas análises (ureia, lactose…) são criadas na tela **Mais → Tipos de análise**, sem mexer no código.
 
+**Estoque (Fase 1):** entrada por nota fiscal (XML, foto/PDF, QR/chave, manual), itens, fornecedores, lotes e custo. Ver `docs/estoque-fase1.md`.
+
 ## Perfis
 | Perfil | Pode |
 |---|---|

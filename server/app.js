@@ -4,16 +4,17 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import multipart from '@fastify/multipart';
 import ExcelJS from 'exceljs';
-import { ROOT } from './config.js';
+import { ROLES, ROOT } from './config.js';
 import { audit, can, login, publicUser, userFromRequest } from './auth.js';
 import { hashSecret, verifySecret, tokenHash, randomPassword } from './security.js';
 import { saveManualAnalysis } from './analysisService.js';
 import { readTable, buildRecords } from './importer.js';
 import * as Q from './quality.js';
+import { registerEstoque } from './estoque/routes.js';
 
 const STATUS = ['lactacao', 'seca', 'novilha', 'bezerra', 'descartada', 'vendida', 'morta'];
 
-export async function buildApp({ pool, farm, logger = false }) {
+export async function buildApp({ pool, farm, logger = false, services = {} }) {
   const app = Fastify({ logger, bodyLimit: 5 * 1024 * 1024 });
   await app.register(multipart, { limits: { fileSize: 15 * 1024 * 1024, files: 1 } });
 
@@ -79,7 +80,7 @@ export async function buildApp({ pool, farm, logger = false }) {
     (await pool.query('select * from users where deleted_at is null order by name')).rows.map(publicUser));
   app.post('/api/users', { preHandler: guard('usuarios') }, async (req, reply) => {
     const { name, email, role } = req.body || {};
-    if (!name || !email || !['dono', 'encarregado', 'funcionario', 'veterinaria'].includes(role)) return fail(reply, 400, 'Informe nome, e-mail e perfil.');
+    if (!name || !email || !ROLES.includes(role)) return fail(reply, 400, 'Informe nome, e-mail e perfil.');
     const password = randomPassword();
     const { rows } = await pool.query(
       'insert into users(name, email, role, pass_hash, must_change_password) values ($1,$2,$3,$4,true) returning *',
@@ -137,6 +138,9 @@ export async function buildApp({ pool, farm, logger = false }) {
     await audit(pool, req.user.id, 'alterar', 'analysis_type', req.params.code, b);
     return { ok: true };
   });
+
+  // ---------- estoque (Fase 1) ----------
+  if (farm.modules?.stock !== false) registerEstoque(app, { pool, guard, fail, services });
 
   // ---------- animais ----------
   app.get('/api/animals', { preHandler: guard('ver_ficha') }, async (req) => {

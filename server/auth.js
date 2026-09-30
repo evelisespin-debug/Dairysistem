@@ -6,10 +6,14 @@ const LOCK_MINUTES = 15;
 
 // Permissões por perfil. O financeiro é tratado à parte (can_see_finance).
 export const PERMS = {
-  dono:        ['ver_ficha', 'lancar', 'corrigir', 'relatorios', 'importar', 'exportar', 'apagar', 'usuarios', 'config', 'auditoria'],
-  encarregado: ['ver_ficha', 'lancar', 'corrigir', 'relatorios', 'importar'],
+  dono:        ['ver_ficha', 'lancar', 'corrigir', 'relatorios', 'importar', 'exportar', 'apagar', 'usuarios', 'config', 'auditoria',
+                'estoque_ver', 'estoque_cadastros', 'estoque_entrada', 'estoque_saida', 'estoque_transferir', 'estoque_inventario', 'estoque_aprovar'],
+  gerente:     ['ver_ficha', 'lancar', 'corrigir', 'relatorios', 'importar', 'exportar', 'config',
+                'estoque_ver', 'estoque_cadastros', 'estoque_entrada'],
+  almoxarife:  ['estoque_ver', 'estoque_entrada', 'estoque_saida', 'estoque_transferir', 'estoque_inventario'],
+  encarregado: ['ver_ficha', 'lancar', 'corrigir', 'relatorios', 'importar', 'estoque_ver', 'estoque_saida'],   // encarregado de setor
   funcionario: ['ver_ficha', 'lancar'],
-  veterinaria: ['ver_ficha', 'lancar', 'corrigir', 'relatorios', 'exportar', 'config'],
+  veterinaria: ['ver_ficha', 'lancar', 'corrigir', 'relatorios', 'exportar', 'config', 'estoque_ver'],
 };
 export const can = (user, perm) => !!user && (PERMS[user.role] || []).includes(perm);
 

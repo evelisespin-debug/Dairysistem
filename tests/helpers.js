@@ -6,16 +6,17 @@ import { buildApp } from '../server/app.js';
 
 export const TEST_DB = process.env.TEST_DATABASE_URL || 'postgres://dairy:dairy_dev@localhost:5432/dairy_test';
 
-export async function setup() {
+const ROLES = ['dono', 'gerente', 'almoxarife', 'encarregado', 'funcionario', 'veterinaria'];
+export async function setup({ services } = {}) {
   const pool = createPool(TEST_DB);
   await pool.query('drop schema public cascade; create schema public');
   await migrate(pool);
   const farm = { ...loadFarmConfig({ FARM: '_template' }), name: 'Fazenda Teste' };
-  farm.initialUsers = ['dono', 'encarregado', 'funcionario', 'veterinaria'].map((r) => ({ name: r, email: `${r}@t.com`, role: r, password: 'senha-teste-1' }));
+  farm.initialUsers = ROLES.map((r) => ({ name: r, email: `${r}@t.com`, role: r, password: 'senha-teste-1' }));
   await seed(pool, farm, { quiet: true });
-  const app = await buildApp({ pool, farm });
+  const app = await buildApp({ pool, farm, services });
   const tokens = {};
-  for (const r of ['dono', 'encarregado', 'funcionario', 'veterinaria']) {
+  for (const r of ROLES) {
     const res = await app.inject({ method: 'POST', url: '/api/login', payload: { email: `${r}@t.com`, password: 'senha-teste-1' } });
     tokens[r] = res.json().token;
   }
@@ -31,5 +32,16 @@ export async function setup() {
       headers: { authorization: `Bearer ${tokens[role]}`, 'content-type': `multipart/form-data; boundary=${b}` } });
     return { status: res.statusCode, body: res.json() };
   };
-  return { pool, app, tokens, call, upload, close: async () => { await app.close(); await pool.end(); } };
+  // envia arquivos (multipart) para qualquer rota
+  const files = async (role, url, list, fields = {}) => {
+    const b = '----bb'; const chunks = [];
+    for (const [k, v] of Object.entries(fields)) chunks.push(Buffer.from(`--${b}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`));
+    for (const f of list) {
+      chunks.push(Buffer.from(`--${b}\r\nContent-Disposition: form-data; name="file"; filename="${f.name}"\r\nContent-Type: ${f.type || 'application/octet-stream'}\r\n\r\n`), Buffer.from(f.data), Buffer.from('\r\n'));
+    }
+    chunks.push(Buffer.from(`--${b}--\r\n`));
+    const res = await app.inject({ method: 'POST', url, payload: Buffer.concat(chunks), headers: { authorization: `Bearer ${tokens[role]}`, 'content-type': `multipart/form-data; boundary=${b}` } });
+    return { status: res.statusCode, body: res.json() };
+  };
+  return { pool, app, tokens, call, upload, files, close: async () => { await app.close(); await pool.end(); } };
 }
