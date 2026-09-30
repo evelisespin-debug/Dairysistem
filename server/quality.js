@@ -33,14 +33,20 @@ const lotClause = (lot, params) => {
   return ` and a.lot = $${params.length}`;
 };
 
-// Valores individuais numa data (ou na mais recente antes de "before")
+// Datas de "coleta" do rebanho, da mais recente para a mais antiga.
+// Lançamentos avulsos (poucas vacas) não contam como coleta: a data precisa ter ao menos
+// 30% das vacas da maior coleta recente (mínimo de 5), senão um lançamento solto distorceria o painel.
 async function testDates(db, code, lot, limit = 2) {
   const params = [code];
   const { rows } = await db.query(
-    `select distinct an.analysis_date d from analyses an join animals a on a.id = an.animal_id
+    `select an.analysis_date d, count(*)::int n from analyses an join animals a on a.id = an.animal_id
       where an.scope = 'animal' and an.type_code = $1 and an.deleted_at is null and a.deleted_at is null
-      ${lotClause(lot, params)} order by d desc limit ${limit}`, params);
-  return rows.map((r) => r.d);
+        and an.analysis_date >= current_date - interval '400 days'
+      ${lotClause(lot, params)} group by 1 order by 1 desc`, params);
+  const max = Math.max(0, ...rows.map((r) => r.n));
+  const min = Math.min(max, Math.max(5, Math.ceil(max * 0.3)));
+  const full = rows.filter((r) => r.n >= min);
+  return (full.length ? full : rows).slice(0, limit).map((r) => r.d);
 }
 
 async function valuesOn(db, code, date, lot) {

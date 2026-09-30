@@ -145,3 +145,12 @@ test('tipos de análise configuráveis sem mexer no código', async () => {
   assert.equal(r.body.committed, true);
   assert.equal((await t.call('encarregado', 'POST', '/api/analysis-types', { code: 'X1', name: 'x' })).status, 403);
 });
+
+test('lançamento avulso de uma vaca não vira a "última coleta" do painel', async () => {
+  for (let i = 0; i < 10; i++) await t.call('dono', 'POST', '/api/animals', { tag: `M${i}` });
+  const rows = Array.from({ length: 10 }, (_, i) => `M${i};15/05/2026;${100 + i}`).join('\n');
+  await t.upload('dono', `Brinco;Data;CCS\n${rows}\n`, { commit: '1' });
+  await t.call('funcionario', 'POST', '/api/analyses/sync', { items: [{ tag: 'M0', date: '2026-06-20', type: 'CCS', value: '999' }] });
+  const s = (await t.call('dono', 'GET', '/api/dashboard/summary')).body;
+  assert.equal(s.cards.find((c) => c.code === 'CCS').date, '2026-05-15');
+});

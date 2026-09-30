@@ -365,9 +365,13 @@ export async function buildApp({ pool, farm, logger = false }) {
 
   // ---------- site (PWA) ----------
   const web = path.join(ROOT, 'web');
-  await app.register(fastifyStatic, { root: web, cacheControl: false, setHeaders: (res) => res.setHeader('cache-control', 'no-cache') });
-  await app.register(fastifyStatic, { root: path.join(ROOT, 'node_modules/chart.js/dist'), prefix: '/vendor/', decorateReply: false,
-    setHeaders: (res) => res.setHeader('cache-control', 'public, max-age=86400') });
+  await app.register(fastifyStatic, { root: web, cacheControl: false });
+  await app.register(fastifyStatic, { root: path.join(ROOT, 'node_modules/chart.js/dist'), prefix: '/vendor/', decorateReply: false, cacheControl: false });
+  app.addHook('onSend', async (req, reply) => {
+    if (!reply.hasHeader('cache-control') && !req.url.startsWith('/api/')) {
+      reply.header('cache-control', req.url.startsWith('/vendor/') ? 'public, max-age=86400' : 'no-cache');
+    }
+  });
   app.get('/manifest.webmanifest', async (req, reply) => reply.type('application/manifest+json').send({
     name: farm.name, short_name: farm.name.slice(0, 12), start_url: '/', display: 'standalone', lang: 'pt-BR',
     background_color: '#f4f7f5', theme_color: '#1f6f5c',
