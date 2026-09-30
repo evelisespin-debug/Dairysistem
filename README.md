@@ -34,7 +34,7 @@ Na AWS (etapa de infraestrutura, ainda por fazer) esses passos viram **um único
 Excel `.xlsx` ou CSV. Colunas reconhecidas sem configurar nada: **Brinco** (ou Animal/Vaca/Número), **Data**,
 **Lote** (opcional) e as análises pelo nome (CCS, Gordura, Proteína, CBT…; aliases configuráveis).
 Formato "longo" (colunas Tipo + Valor) também funciona. Reenviar o mesmo arquivo **não duplica** (atualiza).
-Exemplos em `docs/exemplos/`. Para o mapa do leite do laticínio, escolha "Mapa do leite (tanque)".
+**Relatórios oficiais do controle leiteiro (APCBRH)** são reconhecidos sozinhos: o *Relatório 2* (Sumário de CCS e produção: 12 controles, CCS, leite, gordura, proteína, LAC, parto, registro e tanque) e o *Relatório 2.2* (Impacto da CCS no tanque: lote, parto, produção). Vaca marcada "BAIXA" entra como descartada. O impacto no tanque usa a mesma conta do relatório oficial (CCS × leite ÷ soma de CCS × leite; conferida em 404 vacas). Exemplos em `docs/exemplos/`. Para o mapa do leite do laticínio, escolha "Mapa do leite (tanque)".
 Novas análises (ureia, lactose…) são criadas na tela **Mais → Tipos de análise**, sem mexer no código.
 
 ## Perfis

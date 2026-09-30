@@ -54,6 +54,22 @@ async function parseXlsx(buffer) {
   return rows;
 }
 
+export async function readRaw(buffer, filename = '') {
+  const isXlsx = /\.xlsx$/i.test(filename) || (buffer[0] === 0x50 && buffer[1] === 0x4b);
+  if (/\.xls$/i.test(filename)) throw new Error('Arquivo .xls antigo não é suportado. Salve como .xlsx ou .csv no Excel.');
+  return isXlsx ? parseXlsx(buffer) : parseCsv(buffer.toString('utf8'));
+}
+
+export function tableFromRaw(raw) {
+  const hi = raw.findIndex((r) => r.filter((c) => c !== null && String(c).trim() !== '').length >= 2);
+  if (hi < 0) return { headers: [], rows: [] };
+  const headers = raw[hi].map((h) => String(h ?? '').trim());
+  const rows = raw.slice(hi + 1)
+    .filter((r) => r.some((c) => c !== null && String(c).trim() !== ''))
+    .map((r, i) => ({ line: hi + i + 2, cells: r }));
+  return { headers, rows };
+}
+
 export async function readTable(buffer, filename = '') {
   const isXlsx = /\.xlsx$/i.test(filename) || (buffer[0] === 0x50 && buffer[1] === 0x4b);
   if (/\.xls$/i.test(filename)) throw new Error('Arquivo .xls antigo não é suportado. Salve como .xlsx ou .csv no Excel.');
@@ -125,7 +141,9 @@ export function detectColumns(headers, types) {
  * Transforma a planilha em registros validados.
  * opts: { scope, defaultDate, types }
  */
-export function buildRecords({ headers, rows }, { scope = 'animal', defaultDate = null, types }) {
+export function buildRecords({ headers, rows }, { scope = 'animal', defaultDate = null, types: allTypes }) {
+  // só os tipos que valem para o escopo (ex.: "Produção" é LEITE na vaca e PRODUCAO_TOTAL no tanque)
+  const types = allTypes.filter((t) => t.scale === 'both' || t.scale === scope);
   const cols = detectColumns(headers, types);
   const byCode = new Map(types.map((t) => [t.code, t]));
   const idx = typeIndex(types);

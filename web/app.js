@@ -173,7 +173,7 @@ async function viewPainel() {
         ${sum.tank.length ? `<div class="card"><h2>Tanque / laticínio (mapa do leite)</h2><div class="grid">${sum.tank.map((c) => `
           <div class="kpi ${c.status}"><div class="l">${esc(c.name)} · ${fdate(c.date)}</div><div class="v">${nf(c.value, c.decimals)} <span class="u">${esc(c.unit)}</span></div><div>${chip(c.status)}</div></div>`).join('')}</div></div>` : ''}
         <div class="grid two">
-          <div class="card"><h2>Evolução mensal</h2><div class="tabs" id="tt">${types.filter((t) => t.active).map((t) => `<button data-c="${t.code}" class="${(S.trendCode || 'CCS') === t.code ? 'on' : ''}">${esc(t.code === 'PROTEINA' ? 'Proteína' : t.name.length > 14 ? t.code : t.name)}</button>`).join('')}</div><div class="chart"><canvas id="ctrend"></canvas></div></div>
+          <div class="card"><h2>Evolução mensal</h2><div class="tabs" id="tt">${types.filter((t) => t.active && [...trA, ...trT].some((r) => r.code === t.code)).map((t) => `<button data-c="${t.code}" class="${(S.trendCode || 'CCS') === t.code ? 'on' : ''}">${esc(t.code === 'PROTEINA' ? 'Proteína' : t.name.length > 14 ? t.code : t.name)}</button>`).join('')}</div><div class="chart"><canvas id="ctrend"></canvas></div></div>
           <div class="card"><h2>Distribuição da CCS${dist.date ? ` · ${fdate(dist.date)}` : ''}</h2>${dist.date ? `<div class="chart"><canvas id="cdist"></canvas></div>
             <p class="small muted">${dist.counts.ok} vacas normais · ${dist.counts.atencao} em atenção · ${dist.counts.alerta} em alerta${dist.last_bin_open ? ' · a última faixa inclui valores acima' : ''}</p>` : '<p class="muted">Sem dados.</p>'}</div>
         </div>
@@ -272,7 +272,7 @@ async function viewAnimal(id) {
     $('main').innerHTML = `<p><a href="#/animais">← Animais</a></p><h1>Brinco ${esc(a.tag)} ${a.deleted_at ? '<span class="chip alerta">Apagado</span>' : ''}</h1>
       <div class="card"><div class="grid"><div><div class="muted small">Situação</div><b>${STATUS[a.status]}</b></div><div><div class="muted small">Lote</div><b>${esc(a.lot || '—')}</b></div>
         <div><div class="muted small">Raça</div><b>${esc(a.breed || '—')}</b></div><div><div class="muted small">Nascimento</div><b>${fdate(a.birth_date)}</b></div>
-        <div><div class="muted small">Lactação (LAC)</div><b>${a.lactation_number ?? '—'}</b></div><div><div class="muted small">Dias em lactação (DEL)</div><b>${a.calving_date ? Math.max(0, Math.round((Date.now() - new Date(a.calving_date + 'T00:00:00Z')) / 864e5)) : '—'}</b></div></div>
+        <div><div class="muted small">Lactação (LAC)</div><b>${a.lactation_number ?? '—'}</b></div><div><div class="muted small">DEL na última coleta${dates.length ? ' (' + fdate(dates[dates.length - 1]) + ')' : ''}</div><b>${a.calving_date ? Math.max(0, Math.round((new Date((dates[dates.length - 1] || today()) + 'T00:00:00Z') - new Date(a.calving_date + 'T00:00:00Z')) / 864e5)) : '—'}</b></div>
         ${a.notes ? `<p class="small">${esc(a.notes)}</p>` : ''}
         <div class="row" style="margin-top:10px">${can('lancar') ? `<a class="btn fit primary" href="#/lancar?tag=${encodeURIComponent(a.tag)}">➕ Lançar análise</a>` : ''}${can('corrigir') ? '<button class="fit" id="ed">Editar</button>' : ''}${can('apagar') ? `<button class="fit danger" id="del">${a.deleted_at ? 'Restaurar' : 'Apagar'}</button>` : ''}</div></div>
       <div id="editbox"></div>
@@ -342,8 +342,8 @@ async function viewLancar() {
 async function viewImportar() {
   if (!can('importar')) return (location.hash = '#/animais');
   shell(`<h1>Importar planilha</h1><form id="f" class="card">
-    <p class="muted small">Envie o arquivo do controle leiteiro (por vaca) ou o mapa do leite do laticínio (tanque), em Excel (.xlsx) ou CSV. O sistema reconhece colunas como Brinco, Data, CCS, Gordura, Proteína e CBT. Enviar o mesmo arquivo de novo não duplica nada.</p>
-    <label>O que é este arquivo?</label><select id="sc"><option value="animal">Análises por vaca (controle leiteiro)</option><option value="tank">Mapa do leite (tanque / laticínio)</option></select>
+    <p class="muted small">Envie o relatório do controle leiteiro oficial (APCBRH: <b>Relatório 2</b> e <b>Relatório 2.2</b> são reconhecidos automaticamente, com o tanque) ou uma planilha sua em Excel (.xlsx) ou CSV com colunas como Brinco, Data, CCS, Gordura, Proteína e CBT. Enviar o mesmo arquivo de novo não duplica nada.</p>
+    <label>Se for uma planilha comum, o que ela contém?</label><select id="sc"><option value="animal">Análises por vaca (controle leiteiro)</option><option value="tank">Mapa do leite (tanque / laticínio)</option></select>
     <label>Arquivo</label><input id="file" type="file" accept=".xlsx,.csv,.txt" required>
     <label>Data padrão (só se a planilha não tiver coluna de data)</label><input id="dd" type="date">
     <label style="display:flex;gap:8px;align-items:center;color:var(--ink)" id="cml"><input id="cm" type="checkbox" checked style="width:auto;min-height:0"> Cadastrar automaticamente os brincos que ainda não existem</label>
@@ -355,12 +355,15 @@ async function viewImportar() {
     ev.preventDefault(); $('#e').innerHTML = ''; const btn = $('#f button'); btn.disabled = true;
     try {
       const p = await send(false);
-      const cols = Array.isArray(p.columns) ? p.columns.map((c) => `${esc(c.header)} → <b>${c.code}</b>`).join(' · ') : 'colunas Tipo / Valor';
+      const cols = Array.isArray(p.columns) ? `<p class="small">Colunas reconhecidas: ${p.columns.map((c) => `${esc(c.header)} → <b>${c.code}</b>`).join(' · ')}</p>` : '';
+      const types = p.by_type ? Object.entries(p.by_type).map(([k, v]) => `${esc(k)}: ${nf(v)}`).join(' · ') : '';
       $('#prev').innerHTML = `<div class="card"><h2>Prévia — nada foi gravado ainda</h2>
+        <p><b>${esc(p.format)}</b></p>
         ${p.problems.length ? p.problems.map((x) => `<div class="msg err">${esc(x)}</div>`).join('') : ''}
-        <p>${p.rows_read} linhas lidas · <b>${p.records}</b> valores válidos${p.date_from ? ` · datas de ${fdate(p.date_from)} a ${fdate(p.date_to)}` : ''}</p>
-        <p class="small">Colunas reconhecidas: ${cols}</p>
-        ${p.animals_total ? `<p class="small">${p.animals_total} brincos na planilha · <b>${p.animals_missing}</b> ainda não cadastrados${p.missing_sample.length ? ` (ex.: ${p.missing_sample.map(esc).join(', ')})` : ''}</p>` : ''}
+        ${(p.warnings || []).map((x) => `<div class="msg info">${esc(x)}</div>`).join('')}
+        <p>${nf(p.rows_read)} ${p.controls ? 'vacas' : 'linhas'} lidas · <b>${nf(p.records)}</b> valores válidos${p.controls ? ` em ${p.controls} controle(s)` : ''}${p.date_from ? ` · datas de ${fdate(p.date_from)} a ${fdate(p.date_to)}` : ''}</p>
+        ${types ? `<p class="small muted">${types}</p>` : ''}${cols}
+        ${p.animals_total ? `<p class="small">${nf(p.animals_total)} brincos no arquivo · <b>${nf(p.animals_missing)}</b> ainda não cadastrados${p.missing_sample.length ? ` (ex.: ${p.missing_sample.map(esc).join(', ')})` : ''}</p>` : ''}
         ${p.errors_total ? `<div class="msg info"><b>${p.errors_total}</b> linhas com problema serão ignoradas:<br>${p.errors.slice(0, 8).map((x) => `Linha ${x.line}: ${esc(x.error)}`).join('<br>')}${p.errors_total > 8 ? '<br>…' : ''}</div>` : ''}
         ${!p.problems.length && p.records ? '<button class="primary" id="go">Confirmar importação</button>' : ''}</div>`;
       if ($('#go')) $('#go').onclick = async () => {
@@ -463,13 +466,13 @@ async function viewControle() {
       const kpi = (l, v, note) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v ?? '—'}</div>${note ? `<div class="d muted">${note}</div>` : ''}</div>`;
       $('main').innerHTML = `<h1>Relatório de controle leiteiro</h1>
         ${!r.latest ? '<div class="msg info">Ainda não há análises de CCS. Importe a planilha do controle leiteiro.</div>' : `
-        <div class="grid" style="margin-bottom:14px">${kpi('Quantidade', k.quantity)}${kpi('% do rebanho', k.pct_herd == null ? null : nf(k.pct_herd, 1) + '%')}${kpi('% impacto no tanque', null, 'precisa da produção por vaca')}
-          ${kpi('Média de leite', null, 'precisa da produção por vaca')}${kpi('Média DEL', k.avg_del)}${kpi(`DEL &lt; 45 e CCS &gt; ${nf(r.goal)}`, k.early_high)}</div>
+        <div class="grid" style="margin-bottom:14px">${kpi('Quantidade', k.quantity)}${kpi('% do rebanho', k.pct_herd == null ? null : nf(k.pct_herd, 1) + '%')}${kpi('% impacto no tanque', k.tank_impact == null ? null : nf(k.tank_impact, 1) + '%')}
+          ${kpi('Média de leite', k.avg_milk == null ? null : nf(k.avg_milk, 1) + ' kg')}${kpi('Média DEL', k.avg_del)}${kpi(`DEL &lt; 45 e CCS &gt; ${nf(r.goal)}`, k.early_high)}</div>
         <div class="card"><h2>Filtros</h2><div class="muted small">Grupo</div><div class="tabs" id="g">${GROUPS.map(([v, l]) => `<button data-v="${v}" class="${S.ctl.group === v ? 'on' : ''}">${l}</button>`).join('')}</div>
           <div class="muted small">Situação de qualidade do leite</div><div class="tabs" id="s">${STATUSES.map(([v, l]) => `<button data-v="${v}" class="${S.ctl.status === v ? 'on' : ''}">${l}</button>`).join('')}</div>
           <p class="small muted">Meta de CCS: ${nf(r.goal)} mil cél/mL · coleta mais recente: ${fdate(r.latest)}. Situação pelas duas últimas coletas (regras provisórias, ajustáveis). Grupos: paridas = LAC 2 ou mais; primíparas = LAC 1.</p></div>
-        <div class="card"><h2>Vacas (${r.rows.length})</h2><div class="scroll"><table><tr><th>Brinco</th><th>LAC</th><th>DEL</th>${r.months.map((m) => `<th class="n">${mlabel(m)}</th>`).join('')}<th>Situação</th><th class="n">CCS 12 m</th></tr>
-          ${r.rows.slice(0, 500).map((x) => { const [c, l] = QSTATUS[x.status] || ['', '—']; return `<tr><td><a href="#/animal/${x.id}">${esc(x.tag)}</a></td><td>${x.lac ?? '—'}</td><td>${x.del ?? '—'}</td>${x.months.map((v) => `<td class="n" style="${v != null && v > r.goal ? 'color:var(--bad);font-weight:600' : ''}">${v == null ? '' : nf(v)}</td>`).join('')}<td>${c ? `<span class="chip ${c}">${l}</span>` : `<span class="muted small">${l}</span>`}</td><td class="n">${nf(x.ccs12)}</td></tr>`; }).join('')}</table></div>
+        <div class="card"><h2>Vacas (${r.rows.length})</h2><div class="scroll"><table><tr><th>Brinco</th><th>LAC</th><th>DEL</th>${r.months.map((m) => `<th class="n">${mlabel(m)}</th>`).join('')}<th>Situação</th><th class="n">CCS 12 m</th><th class="n">Produção</th><th class="n">Impacto tanque</th></tr>
+          ${r.rows.slice(0, 500).map((x) => { const [c, l] = QSTATUS[x.status] || ['', '—']; return `<tr><td><a href="#/animal/${x.id}">${esc(x.tag)}</a></td><td>${x.lac ?? '—'}</td><td>${x.del ?? '—'}</td>${x.months.map((v) => `<td class="n" style="${v != null && v > r.goal ? 'color:var(--bad);font-weight:600' : ''}">${v == null ? '' : nf(v)}</td>`).join('')}<td>${c ? `<span class="chip ${c}">${l}</span>` : `<span class="muted small">${l}</span>`}</td><td class="n">${nf(x.ccs12)}</td><td class="n">${x.milk == null ? '—' : nf(x.milk, 1) + ' kg'}</td><td class="n">${x.impact == null ? '—' : nf(x.impact, 2) + '%'}</td></tr>`; }).join('')}</table></div>
           ${r.rows.length > 500 ? '<p class="small muted">Mostrando as primeiras 500.</p>' : ''}${r.rows.length ? '' : '<p class="muted">Nenhuma vaca neste filtro.</p>'}</div>`}`;
       if (!r.latest) return;
       $('#g').onclick = (e) => { const v = e.target.dataset.v; if (v) { S.ctl.group = v; draw(); } };

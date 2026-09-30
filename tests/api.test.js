@@ -195,3 +195,10 @@ test('tanque: resultado com todos os campos do formulário e exclusão pelo dono
   assert.equal((await t.call('dono', 'DELETE', '/api/tank/2026-08-20')).status, 200);
   assert.equal((await t.call('dono', 'GET', '/api/tank')).body.some((x) => x.date === '2026-08-20'), false);
 });
+
+test('janelas do painel acompanham a última coleta, não a data de hoje', async () => {
+  // os dados de teste são de 2026; a evolução mensal deve trazer vários meses mesmo que "hoje" seja bem depois
+  const tr = (await t.call('dono', 'GET', '/api/dashboard/trend?months=12')).body;
+  const months = new Set(tr.filter((x) => x.code === 'CCS').map((x) => x.month));
+  assert.ok(months.size >= 4, `meses: ${[...months]}`);
+});

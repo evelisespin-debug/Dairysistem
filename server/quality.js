@@ -41,7 +41,7 @@ async function testDates(db, code, lot, limit = 2) {
   const { rows } = await db.query(
     `select an.analysis_date d, count(*)::int n from analyses an join animals a on a.id = an.animal_id
       where an.scope = 'animal' and an.type_code = $1 and an.deleted_at is null and a.deleted_at is null
-        and an.analysis_date >= current_date - interval '400 days'
+        and an.analysis_date >= (select max(analysis_date) from analyses where type_code = $1 and scope = 'animal' and deleted_at is null) - 400
       ${lotClause(lot, params)} group by 1 order by 1 desc`, params);
   const max = Math.max(0, ...rows.map((r) => r.n));
   const min = Math.min(max, Math.max(5, Math.ceil(max * 0.3)));
@@ -106,7 +106,8 @@ export async function trend(db, { scope = 'animal', months = 12, lot } = {}) {
             exp(avg(ln(nullif(an.value, 0)))) geo
        from analyses an ${join}
       where an.scope = $1 and an.deleted_at is null
-        and an.analysis_date >= (date_trunc('month', current_date) - (($2::int - 1) || ' months')::interval)::date
+        and an.analysis_date >= (date_trunc('month', (select max(analysis_date) from analyses where scope = $1 and deleted_at is null))
+                                 - (($2::int - 1) || ' months')::interval)::date
         ${lotSql}
       group by 1, 2 order by 1, 2`, params);
   return rows
@@ -246,6 +247,9 @@ export async function milkControl(db, { group = 'todas', status = 'todas', lot }
     if (!byAnimal.has(r.id)) byAnimal.set(r.id, { ...r, tests: [] });
     byAnimal.get(r.id).tests.push({ d: r.d, value: r.value });
   }
+  // produção do dia da coleta mais recente (kg) — base do "impacto no tanque"
+  const milk = new Map((await db.query(
+    `select animal_id, value from analyses where scope = 'animal' and type_code = 'LEITE' and analysis_date = $1 and deleted_at is null`, [latest])).rows.map((r) => [r.animal_id, r.value]));
   let rows = [];
   for (const a of byAnimal.values()) {
     if (!inGroup(a, group)) continue;
@@ -259,9 +263,12 @@ export async function milkControl(db, { group = 'todas', status = 'todas', lot }
       del: a.calving_date ? daysBetween(a.calving_date, latest) : null,
       months: months.map((k) => byMonth[k] ?? null), status: st,
       ccs12: round(mean(a.tests.map((x) => x.value), true), 0), last: last.value,
-      stale: last.d !== latest,
+      stale: last.d !== latest, milk: last.d === latest ? milk.get(a.id) ?? null : null, impact: null,
     });
   }
+  // impacto no tanque: parte de cada vaca na soma (CCS x leite) do rebanho — mesma conta do relatório oficial (2.2)
+  const tankSum = rows.reduce((sum, r) => sum + (r.milk != null ? r.last * r.milk : 0), 0);
+  if (tankSum > 0) rows.forEach((r) => { if (r.milk != null) r.impact = (100 * r.last * r.milk) / tankSum; });
   const dist = { sadia: 0, nova: 0, cronica: 0, curada: 0, acima: 0, sem_historico: 0 };
   rows.forEach((r) => { if (r.status) dist[r.status]++; });
   const accept = { todas: () => true, sadias: (r) => r.status === 'sadia', curadas: (r) => r.status === 'curada', nova: (r) => r.status === 'nova',
@@ -275,8 +282,9 @@ export async function milkControl(db, { group = 'todas', status = 'todas', lot }
       quantity: rows.length, pct_herd: totalCows ? round((100 * rows.length) / totalCows, 1) : null,
       avg_del: dels.length ? Math.round(dels.reduce((s, x) => s + x, 0) / dels.length) : null,
       early_high: rows.filter((r) => r.del != null && r.del < 45 && r.last > goal).length,
-      // dependem de litros por vaca (módulo de produção): ainda não disponíveis
-      avg_milk: null, tank_impact: null,
+      avg_milk: (() => { const m = rows.map((r) => r.milk).filter((x) => x != null); return m.length ? round(m.reduce((a, b) => a + b, 0) / m.length, 1) : null; })(),
+      tank_impact: tankSum > 0 ? round(rows.reduce((a, r) => a + (r.impact || 0), 0), 1) : null,
+      tank_ccs: tankSum > 0 ? round(tankSum / [...byAnimal.values()].reduce((sum, a) => { const l = a.tests[a.tests.length - 1]; return sum + (l.d === latest ? milk.get(a.id) || 0 : 0); }, 0), 0) : null,
     },
   };
 }

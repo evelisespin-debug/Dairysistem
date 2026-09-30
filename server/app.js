@@ -8,7 +8,8 @@ import { ROOT } from './config.js';
 import { audit, can, login, publicUser, userFromRequest } from './auth.js';
 import { hashSecret, verifySecret, tokenHash, randomPassword } from './security.js';
 import { saveManualAnalysis } from './analysisService.js';
-import { readTable, buildRecords } from './importer.js';
+import { readRaw, tableFromRaw, buildRecords } from './importer.js';
+import { parseApcbrh } from './apcbrh.js';
 import * as Q from './quality.js';
 
 const STATUS = ['lactacao', 'seca', 'novilha', 'bezerra', 'descartada', 'vendida', 'morta'];
@@ -254,28 +255,44 @@ export async function buildApp({ pool, farm, logger = false }) {
     const commit = f.commit === '1';
     const createMissing = f.create_missing !== '0';
     const types = await Q.getTypes(pool);
-    let table;
-    try { table = await readTable(file.buffer, file.name); } catch (e) { return fail(reply, 400, `Não consegui ler o arquivo: ${e.message}`); }
     const defaultDate = f.default_date && /^\d{4}-\d{2}-\d{2}$/.test(f.default_date) ? f.default_date : null;
-    const built = buildRecords(table, { scope, defaultDate, types });
+    let raw;
+    try { raw = await readRaw(file.buffer, file.name); } catch (e) { return fail(reply, 400, `Não consegui ler o arquivo: ${e.message}`); }
+
+    // 1) relatórios oficiais do controle leiteiro (reconhecidos sozinhos) ou 2) planilha comum
+    let parsed = parseApcbrh(raw);
+    let columns = null; let format;
+    if (parsed) format = parsed.label;
+    else {
+      const table = tableFromRaw(raw);
+      const built = buildRecords(table, { scope, defaultDate, types });
+      const meta = new Map();
+      for (const r of built.records) {           // lote, lactação e parto vindos das colunas da planilha (o mais recente vale)
+        if (!r.tag || (r.lot == null && r.lac == null && !r.calving)) continue;
+        const k = r.tag.toUpperCase(); const cur = meta.get(k);
+        if (!cur || r.date >= cur.date) meta.set(k, { tag: r.tag, date: r.date, lot: r.lot ?? cur?.lot ?? null, lac: r.lac ?? cur?.lac ?? null, calving: r.calving ?? cur?.calving ?? null });
+      }
+      parsed = { records: built.records.map((r) => ({ ...r, scope })), meta, errors: built.errors, warnings: [], problems: built.problems, cows: null };
+      format = built.cols.format === 'largo' ? 'Planilha (colunas por análise)' : 'Planilha (colunas Tipo/Valor)';
+      columns = built.cols.format === 'largo' ? built.cols.measures.map((m) => ({ header: m.header, code: m.code })) : 'tipo/valor';
+    }
     // dedupe: última linha vence
     const uniq = new Map();
-    for (const r of built.records) uniq.set(`${r.tag?.toUpperCase() ?? ''}|${r.date}|${r.code}`, r);
+    for (const r of parsed.records) uniq.set(`${r.scope}|${r.tag?.toUpperCase() ?? ''}|${r.date}|${r.code}`, r);
     const records = [...uniq.values()];
-    const tags = [...new Set(records.map((r) => r.tag).filter(Boolean))];
-    const known = tags.length ? (await pool.query('select upper(tag) t from animals where deleted_at is null and upper(tag) = any($1)', [tags.map((t) => t.toUpperCase())])).rows.map((r) => r.t) : [];
-    const knownSet = new Set(known);
-    const missing = tags.filter((t) => !knownSet.has(t.toUpperCase()));
+    const known = new Set((await pool.query('select upper(tag) t from animals where deleted_at is null')).rows.map((r) => r.t));
+    const tags = [...new Set(records.filter((r) => r.scope === 'animal').map((r) => r.tag))];
+    const missing = tags.filter((t) => !known.has(t.toUpperCase()));
     const dates = records.map((r) => r.date).sort();
+    const perCode = {}; records.forEach((r) => { const k = `${r.scope === 'tank' ? 'Tanque ' : ''}${r.code}`; perCode[k] = (perCode[k] || 0) + 1; });
     const preview = {
-      filename: file.name, format: built.cols.format, problems: built.problems,
-      columns: built.cols.format === 'largo' ? built.cols.measures.map((m) => ({ header: m.header, code: m.code })) : 'tipo/valor',
-      rows_read: table.rows.length, records: records.length, errors: built.errors.slice(0, 50), errors_total: built.errors.length,
+      filename: file.name, format, problems: parsed.problems, warnings: parsed.warnings, columns: columns ?? undefined,
+      rows_read: parsed.cows ?? raw.length, records: records.length, by_type: perCode, errors: parsed.errors.slice(0, 50), errors_total: parsed.errors.length,
       animals_total: tags.length, animals_missing: missing.length, missing_sample: missing.slice(0, 10),
-      date_from: dates[0] || null, date_to: dates[dates.length - 1] || null,
+      date_from: dates[0] || null, date_to: dates[dates.length - 1] || null, controls: parsed.controls?.length ?? null,
       sample: records.slice(0, 5),
     };
-    if (!commit || built.problems.length) return { committed: false, ...preview };
+    if (!commit || parsed.problems.length) return { committed: false, ...preview };
     if (missing.length && !createMissing) return fail(reply, 400, `${missing.length} brincos não cadastrados. Marque a opção de criar animais novos ou cadastre antes.`);
     if (!records.length) return fail(reply, 400, 'Nenhum dado válido para importar.');
 
@@ -284,46 +301,42 @@ export async function buildApp({ pool, farm, logger = false }) {
       await client.query('begin');
       const batch = (await client.query(
         'insert into import_batches(filename, user_id, rows_total, rows_ok, rows_error) values ($1,$2,$3,$4,$5) returning id',
-        [file.name, req.user.id, table.rows.length, records.length, built.errors.length])).rows[0];
+        [file.name, req.user.id, parsed.cows ?? raw.length, records.length, parsed.errors.length])).rows[0];
+      const metaOf = (t) => parsed.meta.get(t.toUpperCase()) || {};
       let created = 0;
       if (missing.length) {
-        const lotOf = new Map(records.filter((r) => r.lot).map((r) => [r.tag.toUpperCase(), r.lot]));
         const ins = await client.query(
-          `insert into animals(tag, lot, status) select t, l, 'lactacao' from unnest($1::text[], $2::text[]) as x(t, l)
-             on conflict do nothing returning id`, [missing, missing.map((t) => lotOf.get(t.toUpperCase()) || null)]);
+          `insert into animals(tag, lot, status, lactation_number, calving_date, registry, notes)
+           select t, l, coalesce(s, 'lactacao'), lac, c::date, rg, n
+             from unnest($1::text[], $2::text[], $3::text[], $4::int[], $5::text[], $6::text[], $7::text[]) as x(t, l, s, lac, c, rg, n)
+           on conflict do nothing returning id`,
+          [missing, missing.map((t) => metaOf(t).lot ?? null), missing.map((t) => metaOf(t).status ?? null), missing.map((t) => metaOf(t).lac ?? null),
+            missing.map((t) => metaOf(t).calving ?? null), missing.map((t) => metaOf(t).registry ?? null), missing.map((t) => metaOf(t).notes ?? null)]);
         created = ins.rowCount;
       }
-      // atualiza o lote de animais existentes quando a planilha traz a coluna de lote
-      const lotRecs = [...new Map(records.filter((r) => r.lot && r.tag).map((r) => [r.tag.toUpperCase(), r.lot]))];
-      if (lotRecs.length) await client.query(
-        `update animals a set lot = x.l, updated_at = now() from unnest($1::text[], $2::text[]) as x(t, l)
-          where upper(a.tag) = x.t and a.deleted_at is null and a.lot is distinct from x.l`, [lotRecs.map((x) => x[0]), lotRecs.map((x) => x[1])]);
-      const latest = new Map();   // por brinco: LAC / parto da linha de data mais recente
-      for (const r of records) {
-        if (!r.tag || (r.lac == null && !r.calving)) continue;
-        const k = r.tag.toUpperCase(); const cur = latest.get(k);
-        if (!cur || r.date >= cur.date) latest.set(k, { date: r.date, lac: r.lac ?? cur?.lac ?? null, calving: r.calving ?? cur?.calving ?? null });
-      }
-      if (latest.size) {
-        const ks = [...latest.keys()]; const vs = ks.map((k) => latest.get(k));
-        await client.query(
-          `update animals a set lactation_number = coalesce(x.l, a.lactation_number), calving_date = coalesce(x.c::date, a.calving_date), updated_at = now()
-             from unnest($1::text[], $2::int[], $3::text[]) as x(t, l, c) where upper(a.tag) = x.t and a.deleted_at is null`,
-          [ks, vs.map((v) => v.lac), vs.map((v) => v.calving)]);
-      }
+      // animais existentes: lote, lactação, parto, registro e situação (baixa) vindos do arquivo
+      const existing = tags.filter((t) => known.has(t.toUpperCase()));
+      if (existing.length) await client.query(
+        `update animals a set lot = coalesce(x.l, a.lot), lactation_number = coalesce(x.lac, a.lactation_number),
+                calving_date = coalesce(x.c::date, a.calving_date), registry = coalesce(x.rg, a.registry),
+                status = coalesce(x.s, a.status), updated_at = now()
+           from unnest($1::text[], $2::text[], $3::int[], $4::text[], $5::text[], $6::text[]) as x(t, l, lac, c, rg, s)
+          where upper(a.tag) = x.t and a.deleted_at is null`,
+        [existing.map((t) => t.toUpperCase()), existing.map((t) => metaOf(t).lot ?? null), existing.map((t) => metaOf(t).lac ?? null),
+          existing.map((t) => metaOf(t).calving ?? null), existing.map((t) => metaOf(t).registry ?? null), existing.map((t) => metaOf(t).status ?? null)]);
       const ids = new Map((await client.query('select id, upper(tag) t from animals where deleted_at is null')).rows.map((r) => [r.t, r.id]));
-      const rows = records.map((r) => ({ a: scope === 'animal' ? ids.get(r.tag.toUpperCase()) : null, d: r.date, c: r.code, v: r.value }));
+      const rows = records.map((r) => ({ s: r.scope, a: r.scope === 'animal' ? ids.get(r.tag.toUpperCase()) : null, d: r.date, c: r.code, v: r.value }));
       let inserted = 0; let updated = 0;
       for (let i = 0; i < rows.length; i += 1000) {
         const chunk = rows.slice(i, i + 1000);
         const res = await client.query(
           `insert into analyses (scope, animal_id, analysis_date, type_code, value, source, batch_id, created_by)
-           select $1, x.a, x.d::date, x.c, x.v, 'importacao', $2, $3
-             from unnest($4::bigint[], $5::text[], $6::text[], $7::numeric[]) as x(a, d, c, v)
+           select x.s, x.a, x.d::date, x.c, x.v, 'importacao', $1, $2
+             from unnest($3::text[], $4::bigint[], $5::text[], $6::text[], $7::numeric[]) as x(s, a, d, c, v)
            on conflict (scope, coalesce(animal_id, 0), analysis_date, type_code) where deleted_at is null
            do update set value = excluded.value, updated_at = now(), source = 'importacao', batch_id = excluded.batch_id
            returning (xmax = 0) as inserted`,
-          [scope, batch.id, req.user.id, chunk.map((r) => r.a), chunk.map((r) => r.d), chunk.map((r) => r.c), chunk.map((r) => r.v)]);
+          [batch.id, req.user.id, chunk.map((r) => r.s), chunk.map((r) => r.a), chunk.map((r) => r.d), chunk.map((r) => r.c), chunk.map((r) => r.v)]);
         for (const r of res.rows) r.inserted ? inserted++ : updated++;
       }
       await client.query('update import_batches set animals_created = $2 where id = $1', [batch.id, created]);
