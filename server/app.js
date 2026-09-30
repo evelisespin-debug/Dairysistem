@@ -283,6 +283,12 @@ export async function buildApp({ pool, farm, logger = false }) {
     const known = new Set((await pool.query('select upper(tag) t from animals where deleted_at is null')).rows.map((r) => r.t));
     const tags = [...new Set(records.filter((r) => r.scope === 'animal').map((r) => r.tag))];
     const missing = tags.filter((t) => !known.has(t.toUpperCase()));
+    // Sumário (Relatório 2) lista o rebanho todo: vaca cadastrada em lactação que não aparece mais provavelmente saiu (venda, descarte, morte) ou secou
+    if (parsed.format === 'apcbrh-r2') {
+      const inFile = new Set(tags.map((t) => t.toUpperCase()));
+      const absent = (await pool.query(`select tag from animals where deleted_at is null and status = 'lactacao' order by tag`)).rows.map((r) => r.tag).filter((t) => !inFile.has(t.toUpperCase()));
+      if (absent.length) parsed.warnings.push(`${absent.length} vaca(s) cadastrada(s) em lactação não aparecem neste relatório (ex.: ${absent.slice(0, 8).join(', ')}). Podem ter saído do rebanho ou secado: confira a situação delas.`);
+    }
     const dates = records.map((r) => r.date).sort();
     const perCode = {}; records.forEach((r) => { const k = `${r.scope === 'tank' ? 'Tanque ' : ''}${r.code}`; perCode[k] = (perCode[k] || 0) + 1; });
     const preview = {

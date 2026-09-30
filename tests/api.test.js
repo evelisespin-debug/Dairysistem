@@ -202,3 +202,11 @@ test('janelas do painel acompanham a última coleta, não a data de hoje', async
   const months = new Set(tr.filter((x) => x.code === 'CCS').map((x) => x.month));
   assert.ok(months.size >= 4, `meses: ${[...months]}`);
 });
+
+test('filtro Lactantes = testada na coleta mais recente', async () => {
+  const all = (await t.call('dono', 'GET', '/api/reports/milk-control')).body;
+  const lact = (await t.call('dono', 'GET', '/api/reports/milk-control?group=lactantes')).body;
+  assert.ok(lact.rows.length > 0 && lact.rows.length <= all.rows.length);
+  assert.ok(lact.rows.every((r) => !r.stale));
+  assert.equal(lact.kpis.quantity, lact.rows.length);
+});

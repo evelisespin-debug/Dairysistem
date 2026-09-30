@@ -18,7 +18,7 @@ const COWS = [
   ['106', 'BX1006', 5, '02/06/2025', [[60, 45, 4.1, 3.3], [70, 44, 4.0, 3.3]]],
 ];
 
-async function r2Buffer() {
+async function r2Buffer(skipTag) {
   const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Planilha1');
   ws.addRow(['PROPRIETÁRIO:', 'FAZENDA FICTÍCIA']);
   ws.addRow([]); ws.addRow([]); ws.addRow([]);
@@ -26,7 +26,7 @@ async function r2Buffer() {
   const header = () => ws.addRow(['NÚMERO REGISTRO', 'NOME COMUM DATA PARTO', null, 'ORD.LACT IDADE ANO/MÊS', null, 'DATA CONTROLE', null, 'DATA CONTROLE']);
   const dates = () => { const r = ws.addRow([null, null, null, null, null, D1, D1, D2, D2]); ws.mergeCells(r.number, 6, r.number, 7); ws.mergeCells(r.number, 8, r.number, 9); };
   header(); dates(); ws.addRow([null, null, null, null, null, 'OFICIAL', null, 'OFICIAL']);
-  COWS.forEach(([tag, reg, lac, parto, c], i) => {
+  COWS.filter((c) => c[0] !== skipTag).forEach(([tag, reg, lac, parto, c], i) => {
     if (i === 3) { header(); dates(); }                       // o relatório repete o cabeçalho a cada página
     ws.addRow([reg, tag, null, lac, null, c[0][0], c[0][1], c[1][0], c[1][1]]);
     ws.addRow([null, parto, null, '03/02', null, c[0][2], c[0][3], c[1][2], c[1][3]]);
@@ -104,4 +104,10 @@ test('arquivo que não é do formato esperado continua indo pelo leitor comum', 
   const p = await upload(Buffer.from('Brinco;Data;Leite\n101;17/02/2026;29\n'), 'x.csv', '0');
   assert.equal(p.format, 'Planilha (colunas por análise)');
   assert.deepEqual(p.columns, [{ header: 'Leite', code: 'LEITE' }]);
+});
+
+test('relatório 2 mais novo sem uma vaca: avisa que ela sumiu do rebanho', async () => {
+  const p = await upload(await r2Buffer('106'), 'R2-novo.xlsx', '0');
+  const w = p.warnings.find((x) => /não aparecem/.test(x));
+  assert.ok(w && /1 vaca/.test(w) && w.includes('106'), JSON.stringify(p.warnings));
 });

@@ -213,10 +213,11 @@ export function qualityStatus(last, prev, goal) {
 
 const daysBetween = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5);
 
-// Grupos provisórios: lactantes = situação "lactação"; primíparas = LAC 1; paridas = LAC 2 ou mais; novilhas = situação "novilha".
-export function inGroup(a, group) {
+// Grupos provisórios: lactantes = testada na coleta mais recente (a situação do cadastro nem sempre está em dia);
+// primíparas = LAC 1; paridas = LAC 2 ou mais; novilhas = situação "novilha".
+export function inGroup(a, group, current = true) {
   switch (group) {
-    case 'lactantes': return a.status === 'lactacao';
+    case 'lactantes': return current;
     case 'primiparas': return a.lactation_number === 1;
     case 'paridas': return a.lactation_number != null && a.lactation_number >= 2;
     case 'novilhas': return a.status === 'novilha';
@@ -252,8 +253,8 @@ export async function milkControl(db, { group = 'todas', status = 'todas', lot }
     `select animal_id, value from analyses where scope = 'animal' and type_code = 'LEITE' and analysis_date = $1 and deleted_at is null`, [latest])).rows.map((r) => [r.animal_id, r.value]));
   let rows = [];
   for (const a of byAnimal.values()) {
-    if (!inGroup(a, group)) continue;
     const last = a.tests[a.tests.length - 1]; const prev = a.tests[a.tests.length - 2];
+    if (!inGroup(a, group, last.d === latest)) continue;
     if (last.d !== latest && group !== 'todas') { /* mantém: vaca sem teste na última coleta segue listada */ }
     const st = qualityStatus(last.value, prev?.value, goal);
     const byMonth = {};
