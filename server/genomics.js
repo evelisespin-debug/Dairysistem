@@ -75,10 +75,23 @@ export async function saveGenomics(db, records, { createMissing, userId }) {
 }
 
 // Painel de genética: evolução por ano de nascimento, pais, haplótipos, paternidade, melhores animais.
-export async function genetics(db) {
-  const { rows } = await db.query(
+export const AGE_BANDS = [['0-6', 'Até 6 meses', 0, 6], ['6-12', '6 a 12 meses', 6, 12], ['12-24', '12 a 24 meses', 12, 24], ['24+', 'Mais de 24 meses', 24, 9999]];
+const ageMonths = (bd) => (bd ? (Date.now() - Date.parse(bd)) / (30.4375 * 864e5) : null);
+
+export async function genetics(db, { age, tpi_min, tpi_max } = {}) {
+  const { rows: all } = await db.query(
     `select a.id, a.tag, a.birth_date::text bd, a.status, g.sire_name, g.naab, g.sire_sent, g.sire_check, g.tpi, g.nm, g.milk, g.fat_pct, g.dpr, g.haplotypes, g.beta_casein, g.kappa_casein
        from animal_genomics g join animals a on a.id = g.animal_id where a.deleted_at is null`);
+  const band = AGE_BANDS.find((b) => b[0] === age);
+  const lo = tpi_min === '' || tpi_min == null ? null : Number(tpi_min); const hi = tpi_max === '' || tpi_max == null ? null : Number(tpi_max);
+  const ages = all.map((r) => ageMonths(r.bd));
+  const bands = AGE_BANDS.map(([key, label, a, b]) => ({ key, label, n: ages.filter((m) => m != null && m >= a && m < b).length }));
+  const rows = all.filter((r, i) => {
+    if (band && !(ages[i] != null && ages[i] >= band[2] && ages[i] < band[3])) return false;
+    if (Number.isFinite(lo) && lo != null && !(r.tpi != null && +r.tpi >= lo)) return false;
+    if (Number.isFinite(hi) && hi != null && !(r.tpi != null && +r.tpi <= hi)) return false;
+    return true;
+  });
   const avg = (xs) => { const v = xs.filter((x) => x != null).map(Number); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
   const group = (keyFn) => { const m = new Map(); for (const r of rows) { const k = keyFn(r); if (k == null) continue; (m.get(k) || m.set(k, []).get(k)).push(r); } return m; };
   const byYear = [...group((r) => (r.bd ? +r.bd.slice(0, 4) : null))].sort((a, b) => a[0] - b[0])
@@ -91,7 +104,7 @@ export async function genetics(db) {
   const mism = rows.filter(sireMismatch).map((r) => ({ id: r.id, tag: r.tag, sent: r.sire_sent, correct: r.sire_check }));
   const top = [...rows].filter((r) => r.tpi != null).sort((a, b) => b.tpi - a.tpi).slice(0, 15).map((r) => ({ id: r.id, tag: r.tag, sire: r.sire_name, bd: r.bd, tpi: +r.tpi, milk: r.milk == null ? null : +r.milk, dpr: r.dpr == null ? null : +r.dpr }));
   return {
-    total: rows.length, tpi_avg: avg(rows.map((r) => r.tpi)), milk_avg: avg(rows.map((r) => r.milk)), dpr_avg: avg(rows.map((r) => r.dpr)),
+    total: rows.length, total_all: all.length, bands, tpi_range: [Math.min(...all.map((r) => +r.tpi).filter(Number.isFinite)), Math.max(...all.map((r) => +r.tpi).filter(Number.isFinite))], tpi_avg: avg(rows.map((r) => r.tpi)), milk_avg: avg(rows.map((r) => r.milk)), dpr_avg: avg(rows.map((r) => r.dpr)),
     by_year: byYear, sires,
     haplotypes: Object.entries(haplo).map(([h, tags]) => ({ code: h, n: tags.length, sample: tags.slice(0, 10) })),
     beta_casein: count('beta_casein'), kappa_casein: count('kappa_casein'),

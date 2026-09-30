@@ -418,7 +418,7 @@ export async function buildApp({ pool, farm, logger = false }) {
     await audit(pool, req.user.id, 'importar', 'genomics', null, { arquivo: file.name, ...res });
     return { ...out, ...res };
   });
-  app.get('/api/dashboard/genetics', { preHandler: guard('relatorios') }, async () => genetics(pool));
+  app.get('/api/dashboard/genetics', { preHandler: guard('relatorios') }, async (req) => genetics(pool, req.query));
   app.get('/api/animals/:id/genomics', { preHandler: guard('ver_ficha') }, async (req, reply) => {
     const { rows } = await pool.query('select * from animal_genomics where animal_id = $1', [+req.params.id]);
     return rows[0] || fail(reply, 404, 'Sem resultado genômico.');

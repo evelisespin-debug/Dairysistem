@@ -409,14 +409,21 @@ async function viewImportar() {
 }
 
 // ---------------- genética ----------------
+const GF = { age: '', tpi_min: '', tpi_max: '' };   // filtros da tela de genética
 async function viewGenetica() {
   if (!can('relatorios')) return (location.hash = '#/animais');
   shell('<h1>Genética do rebanho</h1><p class="muted">Carregando…</p>', 'genetica');
-  let g; try { g = await api('/api/dashboard/genetics'); } catch (e) { return shell(`<h1>Genética do rebanho</h1>${err(e)}`, 'genetica'); }
-  if (!g.total) return shell('<h1>Genética do rebanho</h1><div class="card"><p>Nenhum resultado genômico ainda. Envie o arquivo em <a href="#/importar">Importar</a> → Resultado genômico.</p></div>', 'genetica');
+  let g; try { g = await api('/api/dashboard/genetics?' + new URLSearchParams(GF)); } catch (e) { return shell(`<h1>Genética do rebanho</h1>${err(e)}`, 'genetica'); }
+  if (!g.total_all) return shell('<h1>Genética do rebanho</h1><div class="card"><p>Nenhum resultado genômico ainda. Envie o arquivo em <a href="#/importar">Importar</a> → Resultado genômico.</p></div>', 'genetica');
   const dist = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${esc(k)}: <b>${nf(v)}</b> (${nf(v / g.total * 100, 0)}%)`).join(' · ');
   shell(`<div class="gray"><h1>Genética do rebanho</h1>
-    <div class="card"><p><b>${nf(g.total)}</b> animais genotipados · TPI médio <b>${nf(g.tpi_avg)}</b> · Leite (PTA) <b>${nf(g.milk_avg)}</b> · DPR <b>${nf(g.dpr_avg, 2)}</b></p></div>
+    <div class="card"><div class="row" style="flex-wrap:wrap;gap:10px;align-items:end">
+      <div><label>Idade</label><select id="fa"><option value="">Todas</option>${g.bands.map((b) => `<option value="${b.key}" ${GF.age === b.key ? 'selected' : ''}>${esc(b.label)} (${nf(b.n)})</option>`).join('')}</select></div>
+      <div><label>TPI de</label><input id="f1" type="number" inputmode="numeric" placeholder="${nf(g.tpi_range[0])}" value="${esc(GF.tpi_min)}"></div>
+      <div><label>TPI até</label><input id="f2" type="number" inputmode="numeric" placeholder="${nf(g.tpi_range[1])}" value="${esc(GF.tpi_max)}"></div>
+      <button class="fit" id="fc">Limpar</button></div></div>
+    ${g.total ? '' : '<div class="card"><p>Nenhum animal nesse filtro.</p></div>'}
+    <div class="card"><p><b>${nf(g.total)}</b>${g.total !== g.total_all ? ` de ${nf(g.total_all)}` : ''} animais genotipados · TPI médio <b>${nf(g.tpi_avg)}</b> · Leite (PTA) <b>${nf(g.milk_avg)}</b> · DPR <b>${nf(g.dpr_avg, 2)}</b></p></div>
     <div class="card"><h2>Evolução por ano de nascimento</h2><div style="height:240px"><canvas id="cy"></canvas></div>
       <div class="scroll"><table><tr><th>Ano</th><th class="n">Animais</th><th class="n">TPI</th><th class="n">Leite</th><th class="n">%Gor</th><th class="n">DPR</th></tr>${g.by_year.map((y) => `<tr><td>${y.year}</td><td class="n">${y.n}</td><td class="n">${nf(y.tpi)}</td><td class="n">${nf(y.milk)}</td><td class="n">${nf(y.fat_pct, 3)}</td><td class="n">${nf(y.dpr, 2)}</td></tr>`).join('')}</table></div></div>
     <div class="card"><h2>Haplótipos e caseínas</h2>
@@ -427,6 +434,10 @@ async function viewGenetica() {
       ${g.sire_mismatch_list.length ? `<div class="scroll"><table><tr><th>Animal</th><th>Informado</th><th>Correto</th></tr>${g.sire_mismatch_list.map((m) => `<tr><td><a href="#/animal/${m.id}">${esc(m.tag)}</a></td><td>${esc(m.sent)}</td><td>${esc(m.correct)}</td></tr>`).join('')}</table></div>` : ''}</div>
     <div class="card"><h2>Pais mais usados</h2><div class="scroll"><table><tr><th>Touro</th><th class="n">Filhas</th><th class="n">TPI médio</th><th class="n">Leite</th><th class="n">DPR</th></tr>${g.sires.map((s) => `<tr><td>${esc(s.sire)}</td><td class="n">${s.n}</td><td class="n">${nf(s.tpi)}</td><td class="n">${nf(s.milk)}</td><td class="n">${nf(s.dpr, 2)}</td></tr>`).join('')}</table></div></div>
     <div class="card"><h2>Melhores animais (TPI)</h2><div class="scroll"><table><tr><th>Animal</th><th>Pai</th><th class="n">TPI</th><th class="n">Leite</th><th class="n">DPR</th></tr>${g.top.map((a) => `<tr><td><a href="#/animal/${a.id}">${esc(a.tag)}</a></td><td>${esc(a.sire || '—')}</td><td class="n">${nf(a.tpi)}</td><td class="n">${nf(a.milk)}</td><td class="n">${nf(a.dpr, 2)}</td></tr>`).join('')}</table></div></div></div>`, 'genetica');
+  const apply = () => { GF.age = $('#fa').value; GF.tpi_min = $('#f1').value; GF.tpi_max = $('#f2').value; viewGenetica(); };
+  $('#fa').onchange = apply; $('#f1').onchange = apply; $('#f2').onchange = apply;
+  $('#fc').onclick = () => { GF.age = GF.tpi_min = GF.tpi_max = ''; viewGenetica(); };
+  if (!g.total) return;
   chart($('#cy'), { type: 'line', data: { labels: g.by_year.map((y) => y.year), datasets: [{ label: 'TPI médio', data: g.by_year.map((y) => y.tpi), borderColor: '#555', backgroundColor: '#888', tension: .2 }] }, options: { plugins: { legend: { display: false } } } });
 }
 

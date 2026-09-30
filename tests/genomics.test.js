@@ -46,6 +46,10 @@ test('importação genômica: prévia não grava, confirmação cadastra e paine
   assert.deepEqual(g.haplotypes.map((h) => [h.code, h.n]), [['HH5', 1]]);
   assert.equal(g.by_year.find((y) => y.year === 2024).n, 2);
   assert.equal(g.top[0].tpi, 3200);
+  const f = (await t.call('dono', 'GET', '/api/dashboard/genetics?tpi_min=2600&tpi_max=3000')).body;
+  assert.equal(f.total, 1); assert.equal(f.total_all, 3);
+  const old = (await t.call('dono', 'GET', '/api/dashboard/genetics?age=12-24')).body;
+  assert.equal(old.total, old.bands.find((b) => b.key === '12-24').n);
   const a = (await t.call('dono', 'GET', '/api/animals/by-tag/100')).body;
   const one = (await t.call('dono', 'GET', `/api/animals/${a.id}/genomics`)).body;
   assert.equal(one.traits.MAST, 101); assert.equal(one.beta_casein, 'A2/A2');
