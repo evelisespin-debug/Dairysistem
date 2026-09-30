@@ -1,4 +1,5 @@
 // Site da fazenda (PWA). JavaScript simples, sem framework.
+import { createPerformanceView } from './desempenho.js';
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const nf = (v, d = 0) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }));
@@ -74,6 +75,7 @@ const monthLabel = (m) => { const [y, mo] = m.split('-'); return `${['jan', 'fev
 function shell(html, active) {
   const items = [];
   if (can('relatorios')) items.push(['painel', '📊', 'Painel'], ['gestao', '📈', 'Gestão']);
+  if (can('relatorios') && S.farm.modules?.performance !== false) items.push(['desempenho', '🥛', 'Desempenho']);
   items.push(['animais', '🐄', 'Animais'], ['lancar', '➕', 'Lançar']);
   if (can('importar')) items.push(['importar', '📥', 'Importar']);
   const reports = can('relatorios') ? [['controle', 'Controle leiteiro'], ['tanque', 'Tanque / laticínio']] : [];
@@ -392,6 +394,7 @@ function viewMais() {
   shell(`<h1>Mais</h1><div class="card list">
     <div class="item"><span><b>${esc(S.user.name)}</b><br><span class="muted small">${esc(S.user.email)} · ${ROLE[S.user.role]}</span></span></div>
     <a class="item" href="#/senha"><span>Trocar senha / PIN</span><span>›</span></a>
+    ${can('relatorios') && S.farm.modules?.performance !== false ? '<a class="item" href="#/desempenho"><span>Desempenho zootécnico</span><span>›</span></a>' : ''}
     ${can('relatorios') ? '<a class="item" href="#/controle"><span>Controle leiteiro (por vaca)</span><span>›</span></a><a class="item" href="#/tanque"><span>Tanque / laticínio</span><span>›</span></a>' : ''}
     ${can('config') ? '<a class="item" href="#/config"><span>Tipos de análise e limites de alerta</span><span>›</span></a>' : ''}
     ${can('usuarios') ? '<a class="item" href="#/usuarios"><span>Usuários da fazenda</span><span>›</span></a>' : ''}
@@ -597,13 +600,16 @@ const statusClient = (t, v) => {
   return hi ? 'alerta' : wa ? 'atencao' : 'ok';
 };
 
+// ---------------- desempenho zootécnico ----------------
+const viewDesempenho = createPerformanceView({ $, esc, nf, api, shell, can, S, toast, chart, css, err, killCharts });
+
 // ---------------- rotas ----------------
 function route() {
   killCharts();
   if (!S.user) return viewLogin();
   const [path] = location.hash.slice(2).split('?'); const [page, arg] = path.split('/');
   if (S.user.must_change_password && page !== 'senha') return viewPassword(true);
-  const views = { painel: viewPainel, animais: viewAnimais, animal: () => viewAnimal(arg), lancar: viewLancar, importar: viewImportar, gestao: viewGestao, controle: viewControle, tanque: viewTanque, mais: viewMais, senha: () => viewPassword(false), config: viewConfig, usuarios: viewUsuarios, auditoria: viewAuditoria };
+  const views = { painel: viewPainel, animais: viewAnimais, animal: () => viewAnimal(arg), lancar: viewLancar, importar: viewImportar, gestao: viewGestao, desempenho: viewDesempenho, controle: viewControle, tanque: viewTanque, mais: viewMais, senha: () => viewPassword(false), config: viewConfig, usuarios: viewUsuarios, auditoria: viewAuditoria };
   (views[page] || (can('relatorios') ? viewPainel : viewAnimais))();
 }
 addEventListener('hashchange', route);

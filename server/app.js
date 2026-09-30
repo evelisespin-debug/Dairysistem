@@ -12,6 +12,7 @@ import { readRaw, tableFromRaw, buildRecords } from './importer.js';
 import { parseApcbrh } from './apcbrh.js';
 import * as Q from './quality.js';
 import { management } from './management.js';
+import * as P from './performance.js';
 
 const STATUS = ['lactacao', 'seca', 'novilha', 'bezerra', 'descartada', 'vendida', 'morta'];
 
@@ -422,6 +423,61 @@ export async function buildApp({ pool, farm, logger = false }) {
     return { removed: r.rowCount };
   });
 
+  // ---------- desempenho zootécnico (indicadores mensais) ----------
+  const perfYear = (v) => { const y = Number(v) || new Date().getFullYear(); return y >= 2000 && y <= 2100 ? Math.trunc(y) : new Date().getFullYear(); };
+  app.get('/api/performance', { preHandler: dash }, async (req) => P.yearReport(pool, perfYear(req.query.year)));
+  app.get('/api/performance/insights', { preHandler: dash }, async (req) => P.analyze(await P.yearReport(pool, perfYear(req.query.year))));
+  // lançar/corrigir os dados de entrada de um mês (o que for calculado a planilha recalcula sozinho)
+  app.put('/api/performance/:year/:month', { preHandler: guard('corrigir') }, async (req, reply) => {
+    const year = +req.params.year; const month = +req.params.month;
+    if (!(year >= 2000 && year <= 2100) || !(month >= 1 && month <= 12)) return fail(reply, 400, 'Ano ou mês inválido.');
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const r = await P.saveMonth(client, req.user.id, year, month, req.body?.values);
+      await audit(client, req.user.id, 'alterar', 'performance', `${year}-${String(month).padStart(2, '0')}`, r);
+      await client.query('commit');
+      return r;
+    } catch (e) { await client.query('rollback'); throw e; } finally { client.release(); }
+  });
+  app.put('/api/performance/targets/:code', { preHandler: guard('config') }, async (req, reply) => {
+    const ind = P.INDICATORS.find((i) => i.code === req.params.code);
+    if (!ind || !ind.good) return fail(reply, 404, 'Este indicador não aceita meta.');
+    const raw = req.body?.target;
+    if (raw === null || raw === '') {
+      await pool.query('delete from perf_targets where code = $1', [ind.code]);
+    } else {
+      const t = Number(String(raw).replace(',', '.'));
+      if (!Number.isFinite(t)) return fail(reply, 400, 'Meta inválida.');
+      await pool.query(`insert into perf_targets (code, target, updated_by) values ($1,$2,$3)
+        on conflict (code) do update set target = excluded.target, updated_by = excluded.updated_by, updated_at = now()`, [ind.code, t, req.user.id]);
+    }
+    await audit(pool, req.user.id, 'alterar', 'performance_target', ind.code, { meta: raw });
+    return { ok: true };
+  });
+  // importar a planilha "Zootécnico" (uma aba por ano). Sem commit=1 só mostra o que seria gravado.
+  app.post('/api/performance/import', { preHandler: guard('importar') }, async (req, reply) => {
+    let file = null; const f = {};
+    for await (const p of req.parts()) { if (p.type === 'file') file = { name: p.filename, buffer: await p.toBuffer() }; else f[p.fieldname] = p.value; }
+    if (!file) return fail(reply, 400, 'Envie a planilha .xlsx.');
+    let parsed;
+    try { parsed = await P.parseWorkbook(file.buffer); } catch (e) { return fail(reply, 400, `Não consegui ler o arquivo: ${e.message}`); }
+    if (!parsed.years.length) return fail(reply, 400, 'Não achei nenhuma aba com nome de ano (ex.: 2026) e meses Jan…Dez na planilha.');
+    const summary = {
+      years: parsed.years.map((y) => ({ year: y.year, months: [...new Set(y.cells.map((c) => c.month))].length, values: y.cells.length, comparison: y.previous.length })),
+      ignored: parsed.ignored, unknown: parsed.unknown,
+    };
+    if (f.commit !== '1') return { committed: false, ...summary };
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const r = await P.commitWorkbook(client, req.user.id, parsed, file.name);
+      await audit(client, req.user.id, 'importar', 'performance', file.name, { anos: summary.years.map((y) => y.year), valores: r.cells });
+      await client.query('commit');
+      return { committed: true, ...summary, saved: r.cells };
+    } catch (e) { await client.query('rollback'); throw e; } finally { client.release(); }
+  });
+
   // ---------- exportação e auditoria ----------
   app.get('/api/export/all.xlsx', { preHandler: guard('exportar') }, async (req, reply) => {
     const wb = new ExcelJS.Workbook();
@@ -432,7 +488,10 @@ export async function buildApp({ pool, farm, logger = false }) {
       `select coalesce(a.tag, '(tanque)') as brinco, x.analysis_date as data, x.type_code as tipo, x.value as valor, x.scope as escopo, x.source as origem
          from analyses x left join animals a on a.id = x.animal_id where x.deleted_at is null order by x.analysis_date, a.tag, x.type_code`)).rows;
     sheet('Analises', ['brinco', 'data', 'tipo', 'valor', 'escopo', 'origem'], ax);
-    await audit(pool, req.user.id, 'exportar', 'farm', 1, { animais: an.length, analises: ax.length });
+    const pv = (await pool.query('select year as ano, month as mes, code as codigo, value::float8 as valor from perf_values order by year, month, code')).rows
+      .map((r) => ({ ...r, indicador: P.INDICATORS.find((i) => i.code === r.codigo)?.label ?? r.codigo }));
+    sheet('Desempenho', ['ano', 'mes', 'codigo', 'indicador', 'valor'], pv);
+    await audit(pool, req.user.id, 'exportar', 'farm', 1, { animais: an.length, analises: ax.length, desempenho: pv.length });
     reply.header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
       .header('content-disposition', `attachment; filename="${farm.slug}-dados.xlsx"`);
     return reply.send(Buffer.from(await wb.xlsx.writeBuffer()));

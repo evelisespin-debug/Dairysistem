@@ -8,7 +8,8 @@ Nenhum nome de fazenda fica no código.
 situação sadia/curada/nova infecção/crônica), resultados do tanque, animais (cadastro mínimo), login com perfis,
 lançamento manual com fila offline, importação de planilhas, exportação, auditoria. Visual DairyUp (Figma).
 **Regras provisórias** (a confirmar): situação da vaca pelas duas últimas coletas, meta de CCS = 200 mil, paridas = LAC ≥ 2.
-Produção, eventos, bezerras, financeiro e áreas agrícolas entram nas próximas etapas (cada um como módulo).
+**Desempenho zootécnico** (menu *Desempenho*): painel mensal no formato da planilha "Zootécnico" — dados de entrada, produção, reprodução, transição, recria, saída, saúde e curva de lactação. Você digita (ou importa) só os números; percentuais, taxas e projeções são calculados com as fórmulas da planilha. Mostra resumo com o que **piorou/melhorou** contra o mesmo mês do ano anterior, gráficos ano a ano, metas por indicador e lançamento mensal.
+Eventos individuais, bezerras, financeiro e áreas agrícolas entram nas próximas etapas (cada um como módulo).
 
 ## Rodar no seu computador / teste
 ```bash
@@ -36,6 +37,10 @@ Excel `.xlsx` ou CSV. Colunas reconhecidas sem configurar nada: **Brinco** (ou A
 Formato "longo" (colunas Tipo + Valor) também funciona. Reenviar o mesmo arquivo **não duplica** (atualiza).
 **Relatórios oficiais do controle leiteiro (APCBRH)** são reconhecidos sozinhos: o *Relatório 2* (Sumário de CCS e produção: 12 controles, CCS, leite, gordura, proteína, LAC, parto, registro e tanque) e o *Relatório 2.2* (Impacto da CCS no tanque: lote, parto, produção). Vaca marcada "BAIXA" entra como descartada. O impacto no tanque usa a mesma conta do relatório oficial (CCS × leite ÷ soma de CCS × leite; conferida em 404 vacas). Exemplos em `docs/exemplos/`. Para o mapa do leite do laticínio, escolha "Mapa do leite (tanque)".
 Novas análises (ureia, lactose…) são criadas na tela **Mais → Tipos de análise**, sem mexer no código.
+
+## Desempenho zootécnico: planilha aceita
+Excel `.xlsx` com **uma aba por ano** (nome `2025`, `2026`…), meses Jan…Dez em colunas e um indicador por linha (exemplo: `docs/exemplos/zootecnico-exemplo.xlsx`). Em **Desempenho → Importar planilha** aparece uma prévia; só grava ao confirmar. Linhas "calculadas" da planilha (%, taxas, RMCA…) não são importadas: o sistema recalcula (conferido contra 637 células calculadas do Excel). As linhas "Ano anterior" só preenchem o ano anterior quando ele ainda não foi lançado. Abas de gráficos/impressão são ignoradas. Desliga-se por fazenda com `"modules": { "performance": false }`.
+Permissões: ver = quem vê o painel; lançar/corrigir = dono, encarregado, veterinária; importar = dono, encarregado; metas = dono, veterinária.
 
 ## Perfis
 | Perfil | Pode |

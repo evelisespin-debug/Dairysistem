@@ -97,3 +97,5 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 .tile .d{font-size:.75rem}
 .reading{margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:8px}
 .reading li{line-height:1.45}
+
+@media (max-width:600px){.tiles{grid-template-columns:1fr 1fr}.tile .tv{font-size:1.5rem}}

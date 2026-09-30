@@ -16,7 +16,7 @@ export function loadFarmConfig(env = process.env) {
   cfg.dir = path.dirname(file);
   for (const k of ['slug', 'name']) if (!cfg[k]) throw new Error(`farm.config.json: falta "${k}"`);
   cfg.timezone ||= 'America/Sao_Paulo';
-  cfg.modules = { quality: true, animals: true, ...(cfg.modules || {}) };
+  cfg.modules = { quality: true, animals: true, performance: true, ...(cfg.modules || {}) };
   cfg.initialUsers ||= [];
   for (const u of cfg.initialUsers) {
     if (!u.email || !u.name || !ROLES.includes(u.role)) {
