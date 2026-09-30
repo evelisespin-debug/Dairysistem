@@ -220,3 +220,12 @@ test('meta de CCS: sadia = abaixo de 200 (200 exato não é sadia)', async () =>
   assert.equal(st.S2, 'nova');       // 200 agora, 100 antes: já não é sadia
   assert.equal(st.S3, 'curada');     // 200 antes, 150 agora
 });
+
+test('painel usa sempre o último controle enviado, mesmo com poucas vacas; digitação avulsa não conta', async () => {
+  await t.upload('dono', 'Brinco;Data;CCS\nS1;15/11/2026;120\nS2;15/11/2026;260\n', { commit: '1' });      // só 2 vacas, mas é o último arquivo
+  await t.call('funcionario', 'POST', '/api/analyses/sync', { items: [{ tag: 'S1', date: '2026-12-01', type: 'CCS', value: '999' }] });
+  const s = (await t.call('dono', 'GET', '/api/dashboard/summary')).body;
+  assert.equal(s.cards.find((c) => c.code === 'CCS').date, '2026-11-15');
+  assert.equal(s.last_control, '2026-11-15');
+  assert.ok(s.last_import.filename);
+});

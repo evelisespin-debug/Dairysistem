@@ -163,6 +163,7 @@ async function viewPainel() {
       const hasData = sum.cards.some((c) => c.date);
       const main = $('main');
       main.innerHTML = `<h1>Painel de qualidade do leite</h1>
+        ${sum.last_control ? `<p class="muted" style="margin:-6px 0 10px">Último controle enviado: <b>${fdate(sum.last_control)}</b>${sum.last_import ? ` · arquivo enviado em ${new Date(sum.last_import.at).toLocaleDateString('pt-BR')}` : ''}</p>` : ''}
         <div class="row" style="margin-bottom:12px"><div><label for="lot" class="sr">Lote</label><select id="lot"><option value="">Todo o rebanho</option>${lots.map((l) => `<option ${l.lot === lot ? 'selected' : ''} value="${esc(l.lot)}">${esc(l.lot)} (${l.n})</option>`).join('')}</select></div></div>
         ${hasData ? '' : '<div class="msg info">Ainda não há análises. Use <b>Importar</b> para enviar a planilha do controle leiteiro ou <b>Lançar</b> para digitar.</div>'}
         <div class="grid" style="margin-bottom:14px">${sum.cards.filter((c) => c.date).map((c) => `

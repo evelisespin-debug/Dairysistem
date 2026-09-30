@@ -43,16 +43,16 @@ export function absenceHint(missed) {
   return 'saiu';
 }
 
-// Datas de "coleta" do rebanho, da mais recente para a mais antiga.
-// Lançamentos avulsos (poucas vacas) não contam como coleta: a data precisa ter ao menos
-// 30% das vacas da maior coleta recente (mínimo de 5), senão um lançamento solto distorceria o painel.
+// Datas de referência do painel, da mais recente para a mais antiga.
+// Regra: vale SEMPRE o último controle enviado (data que veio de importação de arquivo). Lançamento digitado de uma
+// vaca avulsa não vira "controle". Só se a fazenda nunca importou nada é que se usa a data com mais cobertura do rebanho.
 async function testDates(db, code, lot, limit = 2) {
   const params = [code];
-  const { rows } = await db.query(
-    `select an.analysis_date d, count(*)::int n from analyses an join animals a on a.id = an.animal_id
-      where an.scope = 'animal' and an.type_code = $1 and an.deleted_at is null and a.deleted_at is null
-        and an.analysis_date >= (select max(analysis_date) from analyses where type_code = $1 and scope = 'animal' and deleted_at is null) - 400
-      ${lotClause(lot, params)} group by 1 order by 1 desc`, params);
+  const base = `from analyses an join animals a on a.id = an.animal_id
+      where an.scope = 'animal' and an.type_code = $1 and an.deleted_at is null and a.deleted_at is null ${lotClause(lot, params)}`;
+  const imported = await db.query(`select distinct an.analysis_date d ${base} and an.source = 'importacao' order by d desc limit ${limit}`, params);
+  if (imported.rows.length) return imported.rows.map((r) => r.d);
+  const { rows } = await db.query(`select an.analysis_date d, count(*)::int n ${base} group by 1 order by 1 desc`, params);
   const max = Math.max(0, ...rows.map((r) => r.n));
   const min = Math.min(max, Math.max(5, Math.ceil(max * 0.3)));
   const full = rows.filter((r) => r.n >= min);
@@ -101,7 +101,9 @@ export async function summary(db, { lot } = {}) {
       previous: rows[1]?.value ?? null, status: statusOf(t, rows[0].value, 'tank'),
     });
   }
-  return { cards, tank };
+  const { rows: [lastImport] } = await db.query(`select filename, created_at from import_batches where undone_at is null order by id desc limit 1`);
+  const dates = cards.map((c) => c.date).filter(Boolean).sort();
+  return { cards, tank, last_control: dates.at(-1) || null, last_import: lastImport ? { filename: lastImport.filename, at: lastImport.created_at } : null };
 }
 
 export async function trend(db, { scope = 'animal', months = 12, lot } = {}) {
