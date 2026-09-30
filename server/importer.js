@@ -9,6 +9,9 @@ const DATE_COLS = ['data', 'date', 'datacoleta', 'coleta', 'dataanalise', 'dtcol
 const TYPE_COLS = ['tipo', 'analise', 'parametro', 'tipoanalise'];
 const VALUE_COLS = ['valor', 'resultado', 'value'];
 const LOT_COLS = ['lote', 'grupo'];
+const LAC_COLS = ['lac', 'nlac', 'numerolactacao', 'ordemlactacao', 'ordemdelactacao', 'nlactacoes', 'lactnum'];
+const DEL_COLS = ['del', 'diasemlactacao', 'diasemleite'];
+const CALVING_COLS = ['dataparto', 'ultimoparto', 'dataultimoparto', 'dtparto', 'parto'];
 
 // ---------- leitura do arquivo ----------
 function parseCsv(text) {
@@ -109,7 +112,7 @@ export function detectColumns(headers, types) {
   const idx = typeIndex(types);
   const n = headers.map(normHeader);
   const find = (list) => n.findIndex((h) => list.includes(h));
-  const cols = { tag: find(TAG_COLS), date: find(DATE_COLS), type: find(TYPE_COLS), value: find(VALUE_COLS), lot: find(LOT_COLS), measures: [] };
+  const cols = { tag: find(TAG_COLS), date: find(DATE_COLS), type: find(TYPE_COLS), value: find(VALUE_COLS), lot: find(LOT_COLS), lac: find(LAC_COLS), del: find(DEL_COLS), calving: find(CALVING_COLS), measures: [] };
   if (cols.type >= 0 && cols.value >= 0) cols.format = 'longo';
   else {
     cols.format = 'largo';
@@ -144,6 +147,14 @@ export function buildRecords({ headers, rows }, { scope = 'animal', defaultDate 
       if (!tag) { errors.push({ line: r.line, error: 'Brinco vazio' }); continue; }
     }
     const lot = cols.lot >= 0 ? String(cell(cols.lot) ?? '').trim() || null : null;
+    const lacN = cols.lac >= 0 ? parseNumber(cell(cols.lac), 0) : null;
+    const lac = lacN !== null && Number.isInteger(lacN) && lacN >= 0 && lacN < 30 ? lacN : null;
+    // último parto: pela coluna de data, ou calculado a partir do DEL informado
+    let calving = cols.calving >= 0 ? parseDate(cell(cols.calving)) : null;
+    const delN = cols.del >= 0 ? parseNumber(cell(cols.del), 0) : null;
+    if (!calving && delN !== null && Number.isInteger(delN) && delN >= 0 && delN < 1500) {
+      calving = new Date(new Date(date + 'T00:00:00Z').getTime() - delN * 864e5).toISOString().slice(0, 10);
+    }
     const pairs = [];
     if (cols.format === 'longo') {
       const code = idx.get(norm(cell(cols.type)));
@@ -154,7 +165,7 @@ export function buildRecords({ headers, rows }, { scope = 'animal', defaultDate 
       if (raw === null || raw === undefined || String(raw).trim() === '') continue;   // célula vazia: ignora
       const value = parseNumber(raw, byCode.get(code).decimals);
       if (value === null || value < 0) { errors.push({ line: r.line, error: `Valor inválido em ${code}: "${raw}"` }); continue; }
-      records.push({ line: r.line, tag, date, code, value, lot });
+      records.push({ line: r.line, tag, date, code, value, lot, lac, calving });
     }
   }
   return { cols, records, errors, problems };

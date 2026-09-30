@@ -174,14 +174,16 @@ export async function buildApp({ pool, farm, logger = false }) {
   const animalBody = (b) => ({
     tag: String(b.tag || '').trim(), breed: b.breed || null, birth_date: b.birth_date || null,
     lot: b.lot || null, status: b.status || 'lactacao', notes: b.notes || null,
+    lactation_number: b.lactation_number === '' || b.lactation_number == null ? null : Math.max(0, Math.min(29, parseInt(b.lactation_number, 10) || 0)),
+    calving_date: b.calving_date || null,
   });
   app.post('/api/animals', { preHandler: guard('lancar') }, async (req, reply) => {
     const a = animalBody(req.body || {});
     if (!a.tag) return fail(reply, 400, 'Informe o brinco.');
     if (!STATUS.includes(a.status)) return fail(reply, 400, 'Situação inválida.');
     const { rows } = await pool.query(
-      'insert into animals(tag, breed, birth_date, lot, status, notes) values ($1,$2,$3,$4,$5,$6) returning *',
-      [a.tag, a.breed, a.birth_date, a.lot, a.status, a.notes]);
+      'insert into animals(tag, breed, birth_date, lot, status, notes, lactation_number, calving_date) values ($1,$2,$3,$4,$5,$6,$7,$8) returning *',
+      [a.tag, a.breed, a.birth_date, a.lot, a.status, a.notes, a.lactation_number, a.calving_date]);
     await audit(pool, req.user.id, 'criar', 'animal', rows[0].id, a);
     return rows[0];
   });
@@ -191,10 +193,10 @@ export async function buildApp({ pool, farm, logger = false }) {
     const n = { ...old, ...animalBody({ ...old, ...req.body }) };
     if (!STATUS.includes(n.status)) return fail(reply, 400, 'Situação inválida.');
     const { rows } = await pool.query(
-      `update animals set tag=$2, breed=$3, birth_date=$4, lot=$5, status=$6, notes=$7, updated_at=now() where id=$1 returning *`,
-      [id, n.tag, n.breed, n.birth_date, n.lot, n.status, n.notes]);
+      `update animals set tag=$2, breed=$3, birth_date=$4, lot=$5, status=$6, notes=$7, lactation_number=$8, calving_date=$9, updated_at=now() where id=$1 returning *`,
+      [id, n.tag, n.breed, n.birth_date, n.lot, n.status, n.notes, n.lactation_number, n.calving_date]);
     const diff = {};
-    for (const k of ['tag', 'breed', 'birth_date', 'lot', 'status', 'notes']) if (String(old[k] ?? '') !== String(rows[0][k] ?? '')) diff[k] = { de: old[k], para: rows[0][k] };
+    for (const k of ['tag', 'breed', 'birth_date', 'lot', 'status', 'notes', 'lactation_number', 'calving_date']) if (String(old[k] ?? '') !== String(rows[0][k] ?? '')) diff[k] = { de: old[k], para: rows[0][k] };
     await audit(pool, req.user.id, 'alterar', 'animal', id, diff);
     return rows[0];
   });
@@ -296,6 +298,19 @@ export async function buildApp({ pool, farm, logger = false }) {
       if (lotRecs.length) await client.query(
         `update animals a set lot = x.l, updated_at = now() from unnest($1::text[], $2::text[]) as x(t, l)
           where upper(a.tag) = x.t and a.deleted_at is null and a.lot is distinct from x.l`, [lotRecs.map((x) => x[0]), lotRecs.map((x) => x[1])]);
+      const latest = new Map();   // por brinco: LAC / parto da linha de data mais recente
+      for (const r of records) {
+        if (!r.tag || (r.lac == null && !r.calving)) continue;
+        const k = r.tag.toUpperCase(); const cur = latest.get(k);
+        if (!cur || r.date >= cur.date) latest.set(k, { date: r.date, lac: r.lac ?? cur?.lac ?? null, calving: r.calving ?? cur?.calving ?? null });
+      }
+      if (latest.size) {
+        const ks = [...latest.keys()]; const vs = ks.map((k) => latest.get(k));
+        await client.query(
+          `update animals a set lactation_number = coalesce(x.l, a.lactation_number), calving_date = coalesce(x.c::date, a.calving_date), updated_at = now()
+             from unnest($1::text[], $2::int[], $3::text[]) as x(t, l, c) where upper(a.tag) = x.t and a.deleted_at is null`,
+          [ks, vs.map((v) => v.lac), vs.map((v) => v.calving)]);
+      }
       const ids = new Map((await client.query('select id, upper(tag) t from animals where deleted_at is null')).rows.map((r) => [r.t, r.id]));
       const rows = records.map((r) => ({ a: scope === 'animal' ? ids.get(r.tag.toUpperCase()) : null, d: r.date, c: r.code, v: r.value }));
       let inserted = 0; let updated = 0;
@@ -342,6 +357,17 @@ export async function buildApp({ pool, farm, logger = false }) {
   app.get('/api/dashboard/alerts', { preHandler: dash }, async (req, reply) =>
     (await Q.cowAlerts(pool, { code: (req.query.code || 'CCS').toUpperCase(), lot: req.query.lot })) || fail(reply, 404, 'Tipo não encontrado.'));
   app.get('/api/dashboard/lots', { preHandler: dash }, async () => Q.lots(pool));
+  app.get('/api/reports/milk-control', { preHandler: dash }, async (req, reply) =>
+    (await Q.milkControl(pool, { group: req.query.group, status: req.query.status, lot: req.query.lot })) || fail(reply, 404, 'Tipo CCS não configurado.'));
+  app.get('/api/tank', { preHandler: dash }, async () => Q.tankResults(pool));
+  // apagar um resultado do tanque (todas as análises daquela data) — só o dono
+  app.delete('/api/tank/:date', { preHandler: guard('apagar') }, async (req, reply) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(req.params.date)) return fail(reply, 400, 'Data inválida.');
+    const r = await pool.query(`update analyses set deleted_at = now() where scope = 'tank' and analysis_date = $1 and deleted_at is null`, [req.params.date]);
+    if (!r.rowCount) return fail(reply, 404, 'Resultado não encontrado.');
+    await audit(pool, req.user.id, 'apagar', 'tank_result', req.params.date, { registros: r.rowCount });
+    return { removed: r.rowCount };
+  });
 
   // ---------- exportação e auditoria ----------
   app.get('/api/export/all.xlsx', { preHandler: guard('exportar') }, async (req, reply) => {

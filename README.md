@@ -4,8 +4,10 @@ Um código só, uma cópia por fazenda, cada uma com **banco de dados próprio**
 O que muda entre fazendas está em `farms/<fazenda>/farm.config.json` (nome, logotipo, endereço, usuários iniciais).
 Nenhum nome de fazenda fica no código.
 
-**Estado atual (piloto):** qualidade do leite + dashboards, animais (cadastro mínimo), login com perfis,
-lançamento manual com fila offline, importação de planilhas, exportação, auditoria.
+**Estado atual (piloto):** qualidade do leite + dashboards, relatório de controle leiteiro por vaca (CCS mês a mês, LAC/DEL,
+situação sadia/curada/nova infecção/crônica), resultados do tanque, animais (cadastro mínimo), login com perfis,
+lançamento manual com fila offline, importação de planilhas, exportação, auditoria. Visual DairyUp (Figma).
+**Regras provisórias** (a confirmar): situação da vaca pelas duas últimas coletas, meta de CCS = 200 mil, paridas = LAC ≥ 2.
 Produção, eventos, bezerras, financeiro e áreas agrícolas entram nas próximas etapas (cada um como módulo).
 
 ## Rodar no seu computador / teste

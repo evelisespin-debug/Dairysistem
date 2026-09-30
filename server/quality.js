@@ -195,3 +195,97 @@ export async function lots(db) {
       group by lot order by lot`);
   return rows;
 }
+
+// ---------- Relatório de controle leiteiro (por vaca, CCS mês a mês) ----------
+// REGRAS PROVISÓRIAS (a confirmar com a veterinária): meta = limite "atenção" da CCS (200 mil);
+// a situação usa as duas últimas coletas de cada vaca:
+//   sadia = as duas ≤ meta · nova infecção = última > meta e anterior ≤ meta ·
+//   crônica = as duas > meta · curada = última ≤ meta e anterior > meta · sem histórico = só uma coleta.
+export function qualityStatus(last, prev, goal) {
+  if (last == null) return null;
+  if (prev == null) return last > goal ? 'acima' : 'sem_historico';
+  if (last > goal && prev > goal) return 'cronica';
+  if (last > goal) return 'nova';
+  if (prev > goal) return 'curada';
+  return 'sadia';
+}
+
+const daysBetween = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5);
+
+// Grupos provisórios: lactantes = situação "lactação"; primíparas = LAC 1; paridas = LAC 2 ou mais; novilhas = situação "novilha".
+export function inGroup(a, group) {
+  switch (group) {
+    case 'lactantes': return a.status === 'lactacao';
+    case 'primiparas': return a.lactation_number === 1;
+    case 'paridas': return a.lactation_number != null && a.lactation_number >= 2;
+    case 'novilhas': return a.status === 'novilha';
+    default: return true;
+  }
+}
+
+export async function milkControl(db, { group = 'todas', status = 'todas', lot } = {}) {
+  const types = await getTypes(db, { onlyActive: false });
+  const t = types.find((x) => x.code === 'CCS');
+  if (!t) return null;
+  const goal = t.warn_high ?? 200;
+  const [latest] = await testDates(db, 'CCS', lot, 1);
+  if (!latest) return { goal, latest: null, months: [], rows: [], kpis: null };
+  const [y, m] = latest.split('-').map(Number);
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(Date.UTC(y, m - 1 - (11 - i), 1)); return d.toISOString().slice(0, 7);
+  });
+  const params = [months[0] + '-01', latest];
+  const lotSql = lotClause(lot, params);
+  const { rows: raw } = await db.query(
+    `select a.id, a.tag, a.lot, a.status, a.lactation_number, a.calving_date, an.analysis_date d, an.value
+       from analyses an join animals a on a.id = an.animal_id
+      where an.scope = 'animal' and an.type_code = 'CCS' and an.deleted_at is null and a.deleted_at is null
+        and an.analysis_date between $1 and $2 ${lotSql} order by a.tag, an.analysis_date`, params);
+  const byAnimal = new Map();
+  for (const r of raw) {
+    if (!byAnimal.has(r.id)) byAnimal.set(r.id, { ...r, tests: [] });
+    byAnimal.get(r.id).tests.push({ d: r.d, value: r.value });
+  }
+  let rows = [];
+  for (const a of byAnimal.values()) {
+    if (!inGroup(a, group)) continue;
+    const last = a.tests[a.tests.length - 1]; const prev = a.tests[a.tests.length - 2];
+    if (last.d !== latest && group !== 'todas') { /* mantém: vaca sem teste na última coleta segue listada */ }
+    const st = qualityStatus(last.value, prev?.value, goal);
+    const byMonth = {};
+    for (const x of a.tests) byMonth[x.d.slice(0, 7)] = x.value;      // última do mês
+    rows.push({
+      id: a.id, tag: a.tag, lot: a.lot, lac: a.lactation_number,
+      del: a.calving_date ? daysBetween(a.calving_date, latest) : null,
+      months: months.map((k) => byMonth[k] ?? null), status: st,
+      ccs12: round(mean(a.tests.map((x) => x.value), true), 0), last: last.value,
+      stale: last.d !== latest,
+    });
+  }
+  const dist = { sadia: 0, nova: 0, cronica: 0, curada: 0, acima: 0, sem_historico: 0 };
+  rows.forEach((r) => { if (r.status) dist[r.status]++; });
+  const accept = { todas: () => true, sadias: (r) => r.status === 'sadia', curadas: (r) => r.status === 'curada', nova: (r) => r.status === 'nova',
+    cronicas: (r) => r.status === 'cronica', acima200: (r) => r.last > goal }[status] || (() => true);
+  const totalCows = rows.length;
+  rows = rows.filter(accept);
+  const dels = rows.map((r) => r.del).filter((x) => x != null);
+  return {
+    goal, latest, months, rows, distribution: dist,
+    kpis: {
+      quantity: rows.length, pct_herd: totalCows ? round((100 * rows.length) / totalCows, 1) : null,
+      avg_del: dels.length ? Math.round(dels.reduce((s, x) => s + x, 0) / dels.length) : null,
+      early_high: rows.filter((r) => r.del != null && r.del < 45 && r.last > goal).length,
+      // dependem de litros por vaca (módulo de produção): ainda não disponíveis
+      avg_milk: null, tank_impact: null,
+    },
+  };
+}
+
+// ---------- Resultados do tanque: uma linha por data ----------
+export async function tankResults(db) {
+  const { rows } = await db.query(
+    `select analysis_date d, type_code, value from analyses where scope = 'tank' and deleted_at is null order by analysis_date desc, type_code`);
+  const byDate = new Map();
+  for (const r of rows) { if (!byDate.has(r.d)) byDate.set(r.d, { date: r.d, values: {} }); byDate.get(r.d).values[r.type_code] = r.value; }
+  return [...byDate.values()];
+}

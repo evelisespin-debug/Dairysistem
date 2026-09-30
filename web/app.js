@@ -76,6 +76,7 @@ function shell(html, active) {
   if (can('relatorios')) items.push(['painel', '📊', 'Painel']);
   items.push(['animais', '🐄', 'Animais'], ['lancar', '➕', 'Lançar']);
   if (can('importar')) items.push(['importar', '📥', 'Importar']);
+  const reports = can('relatorios') ? [['controle', 'Controle leiteiro'], ['tanque', 'Tanque / laticínio']] : [];
   const more = [];
   if (can('config')) more.push(['config', 'Tipos de análise e limites']);
   if (can('usuarios')) more.push(['usuarios', 'Usuários']);
@@ -85,6 +86,7 @@ function shell(html, active) {
     <aside class="side"><img class="logo" src="/brand/dairyup-vertical.png" alt="DairyUp">
       <div class="who"><b>${esc(S.farm.name)}</b>${esc(S.user.name)} · ${ROLE[S.user.role]}</div>
       ${items.map(([k, , l]) => `<a href="#/${k}" class="${active === k ? 'on' : ''}">${l}</a>`).join('')}
+      ${reports.length ? `<div class="sect">Relatórios</div>${reports.map(([k, l]) => `<a href="#/${k}" class="${active === k ? 'on' : ''}">${l}</a>`).join('')}` : ''}
       <div class="sect">Configurações</div>
       ${more.map(([k, l]) => `<a href="#/${k}" class="${location.hash.startsWith('#/' + k) ? 'on' : ''}">${l}</a>`).join('')}
       ${can('exportar') ? '<a href="#" data-x="exp">Exportar dados (planilha)</a>' : ''}
@@ -251,9 +253,10 @@ function animalForm(a = {}) {
   return `<form id="f" class="card"><label>Brinco</label><input id="tag" required value="${esc(a.tag || '')}">
     <div class="row"><div><label>Raça</label><input id="breed" value="${esc(a.breed || '')}"></div><div><label>Nascimento</label><input id="bd" type="date" value="${esc(a.birth_date || '')}"></div></div>
     <div class="row"><div><label>Lote</label><input id="lot" value="${esc(a.lot || '')}"></div><div><label>Situação</label><select id="st">${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${(a.status || 'lactacao') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div></div>
+    <div class="row"><div><label>Nº da lactação (LAC)</label><input id="lac" inputmode="numeric" value="${esc(a.lactation_number ?? '')}"></div><div><label>Último parto</label><input id="cd" type="date" value="${esc(a.calving_date || '')}"></div></div>
     <label>Observações</label><textarea id="nt" rows="2">${esc(a.notes || '')}</textarea><div id="e"></div><div style="margin-top:14px" class="row"><button class="primary">Salvar</button><button type="button" class="fit" onclick="history.back()">Cancelar</button></div></form>`;
 }
-const animalBody = () => ({ tag: $('#tag').value, breed: $('#breed').value, birth_date: $('#bd').value, lot: $('#lot').value, status: $('#st').value, notes: $('#nt').value });
+const animalBody = () => ({ tag: $('#tag').value, breed: $('#breed').value, birth_date: $('#bd').value, lot: $('#lot').value, status: $('#st').value, notes: $('#nt').value, lactation_number: $('#lac').value, calving_date: $('#cd').value });
 
 async function viewAnimal(id) {
   if (id === 'novo') {
@@ -268,7 +271,8 @@ async function viewAnimal(id) {
     const val = (d, c) => analyses.find((x) => x.d === d && x.type_code === c);
     $('main').innerHTML = `<p><a href="#/animais">← Animais</a></p><h1>Brinco ${esc(a.tag)} ${a.deleted_at ? '<span class="chip alerta">Apagado</span>' : ''}</h1>
       <div class="card"><div class="grid"><div><div class="muted small">Situação</div><b>${STATUS[a.status]}</b></div><div><div class="muted small">Lote</div><b>${esc(a.lot || '—')}</b></div>
-        <div><div class="muted small">Raça</div><b>${esc(a.breed || '—')}</b></div><div><div class="muted small">Nascimento</div><b>${fdate(a.birth_date)}</b></div></div>
+        <div><div class="muted small">Raça</div><b>${esc(a.breed || '—')}</b></div><div><div class="muted small">Nascimento</div><b>${fdate(a.birth_date)}</b></div>
+        <div><div class="muted small">Lactação (LAC)</div><b>${a.lactation_number ?? '—'}</b></div><div><div class="muted small">Dias em lactação (DEL)</div><b>${a.calving_date ? Math.max(0, Math.round((Date.now() - new Date(a.calving_date + 'T00:00:00Z')) / 864e5)) : '—'}</b></div></div>
         ${a.notes ? `<p class="small">${esc(a.notes)}</p>` : ''}
         <div class="row" style="margin-top:10px">${can('lancar') ? `<a class="btn fit primary" href="#/lancar?tag=${encodeURIComponent(a.tag)}">➕ Lançar análise</a>` : ''}${can('corrigir') ? '<button class="fit" id="ed">Editar</button>' : ''}${can('apagar') ? `<button class="fit danger" id="del">${a.deleted_at ? 'Restaurar' : 'Apagar'}</button>` : ''}</div></div>
       <div id="editbox"></div>
@@ -383,6 +387,7 @@ function viewMais() {
   shell(`<h1>Mais</h1><div class="card list">
     <div class="item"><span><b>${esc(S.user.name)}</b><br><span class="muted small">${esc(S.user.email)} · ${ROLE[S.user.role]}</span></span></div>
     <a class="item" href="#/senha"><span>Trocar senha / PIN</span><span>›</span></a>
+    ${can('relatorios') ? '<a class="item" href="#/controle"><span>Controle leiteiro (por vaca)</span><span>›</span></a><a class="item" href="#/tanque"><span>Tanque / laticínio</span><span>›</span></a>' : ''}
     ${can('config') ? '<a class="item" href="#/config"><span>Tipos de análise e limites de alerta</span><span>›</span></a>' : ''}
     ${can('usuarios') ? '<a class="item" href="#/usuarios"><span>Usuários da fazenda</span><span>›</span></a>' : ''}
     ${can('auditoria') ? '<a class="item" href="#/auditoria"><span>Registro de alterações</span><span>›</span></a>' : ''}
@@ -442,13 +447,76 @@ async function viewAuditoria() {
   } catch (e) { $('main').innerHTML = err(e); }
 }
 
+
+// ---------------- controle leiteiro (por vaca) ----------------
+const QSTATUS = { sadia: ['ok', 'Sadia'], curada: ['ok', 'Curada'], nova: ['atencao', 'Nova infecção'], cronica: ['alerta', 'Crônica'], acima: ['atencao', 'Acima da meta'], sem_historico: ['', 'Sem histórico'] };
+const GROUPS = [['todas', 'Todas'], ['lactantes', 'Lactantes'], ['paridas', 'Paridas'], ['primiparas', 'Primíparas'], ['novilhas', 'Novilhas']];
+const STATUSES = [['todas', 'Todas'], ['sadias', 'Sadias'], ['curadas', 'Curadas'], ['nova', 'Nova infecção'], ['cronicas', 'Crônicas'], ['acima200', 'Acima da meta']];
+async function viewControle() {
+  if (!can('relatorios')) return (location.hash = '#/animais');
+  shell('<h1>Relatório de controle leiteiro</h1><div class="muted">Carregando…</div>', 'controle');
+  S.ctl ||= { group: 'todas', status: 'todas' };
+  const draw = async () => {
+    try {
+      const r = await api(`/api/reports/milk-control?group=${S.ctl.group}&status=${S.ctl.status}${sessionStorage.getItem('lot') ? '&lot=' + encodeURIComponent(sessionStorage.getItem('lot')) : ''}`);
+      const k = r.kpis; const mlabel = (m) => `${m.slice(5)}/${m.slice(2, 4)}`;
+      const kpi = (l, v, note) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v ?? '—'}</div>${note ? `<div class="d muted">${note}</div>` : ''}</div>`;
+      $('main').innerHTML = `<h1>Relatório de controle leiteiro</h1>
+        ${!r.latest ? '<div class="msg info">Ainda não há análises de CCS. Importe a planilha do controle leiteiro.</div>' : `
+        <div class="grid" style="margin-bottom:14px">${kpi('Quantidade', k.quantity)}${kpi('% do rebanho', k.pct_herd == null ? null : nf(k.pct_herd, 1) + '%')}${kpi('% impacto no tanque', null, 'precisa da produção por vaca')}
+          ${kpi('Média de leite', null, 'precisa da produção por vaca')}${kpi('Média DEL', k.avg_del)}${kpi(`DEL &lt; 45 e CCS &gt; ${nf(r.goal)}`, k.early_high)}</div>
+        <div class="card"><h2>Filtros</h2><div class="muted small">Grupo</div><div class="tabs" id="g">${GROUPS.map(([v, l]) => `<button data-v="${v}" class="${S.ctl.group === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+          <div class="muted small">Situação de qualidade do leite</div><div class="tabs" id="s">${STATUSES.map(([v, l]) => `<button data-v="${v}" class="${S.ctl.status === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+          <p class="small muted">Meta de CCS: ${nf(r.goal)} mil cél/mL · coleta mais recente: ${fdate(r.latest)}. Situação pelas duas últimas coletas (regras provisórias, ajustáveis). Grupos: paridas = LAC 2 ou mais; primíparas = LAC 1.</p></div>
+        <div class="card"><h2>Vacas (${r.rows.length})</h2><div class="scroll"><table><tr><th>Brinco</th><th>LAC</th><th>DEL</th>${r.months.map((m) => `<th class="n">${mlabel(m)}</th>`).join('')}<th>Situação</th><th class="n">CCS 12 m</th></tr>
+          ${r.rows.slice(0, 500).map((x) => { const [c, l] = QSTATUS[x.status] || ['', '—']; return `<tr><td><a href="#/animal/${x.id}">${esc(x.tag)}</a></td><td>${x.lac ?? '—'}</td><td>${x.del ?? '—'}</td>${x.months.map((v) => `<td class="n" style="${v != null && v > r.goal ? 'color:var(--bad);font-weight:600' : ''}">${v == null ? '' : nf(v)}</td>`).join('')}<td>${c ? `<span class="chip ${c}">${l}</span>` : `<span class="muted small">${l}</span>`}</td><td class="n">${nf(x.ccs12)}</td></tr>`; }).join('')}</table></div>
+          ${r.rows.length > 500 ? '<p class="small muted">Mostrando as primeiras 500.</p>' : ''}${r.rows.length ? '' : '<p class="muted">Nenhuma vaca neste filtro.</p>'}</div>`}`;
+      if (!r.latest) return;
+      $('#g').onclick = (e) => { const v = e.target.dataset.v; if (v) { S.ctl.group = v; draw(); } };
+      $('#s').onclick = (e) => { const v = e.target.dataset.v; if (v) { S.ctl.status = v; draw(); } };
+    } catch (e) { $('main').innerHTML = err(e); }
+  };
+  draw();
+}
+
+// ---------------- tanque / laticínio ----------------
+async function viewTanque() {
+  if (!can('relatorios')) return (location.hash = '#/animais');
+  shell('<h1>Resultado de análises do tanque</h1><div class="muted">Carregando…</div>', 'tanque');
+  try {
+    const [rows, all] = await Promise.all([api('/api/tank'), api('/api/analysis-types')]);
+    const types = all.filter((t) => t.active && t.scale !== 'animal');
+    $('main').innerHTML = `<h1>Resultado de análises do tanque</h1>
+      <div class="card"><h2>Novo resultado</h2><form id="f"><div class="row"><div><label>Data</label><input id="d" type="date" required value="${today()}"></div></div>
+        <div class="grid">${types.map((t) => `<div><label for="t_${t.code}">${esc(t.code === 'CBT' ? 'CBT / CPP' : t.name)} <span class="muted small">${esc(t.unit)}</span></label><input id="t_${t.code}" data-code="${t.code}" inputmode="decimal" autocomplete="off"></div>`).join('')}</div>
+        <div id="e"></div><div style="margin-top:14px"><button class="primary">Salvar resultado</button></div></form></div>
+      <div class="card"><h2>Resultados (${rows.length})</h2>${rows.length ? `<div class="scroll"><table><tr><th>Data</th>${types.map((t) => `<th class="n">${esc(shortName(t))}</th>`).join('')}${can('apagar') ? '<th></th>' : ''}</tr>
+        ${rows.map((r) => `<tr><td>${fdate(r.date)}</td>${types.map((t) => { const v = r.values[t.code]; const st = v == null ? 'ok' : statusClient(t, v); return `<td class="n" style="${st === 'alerta' ? 'color:var(--bad);font-weight:600' : st === 'atencao' ? 'color:var(--warn);font-weight:600' : ''}">${v == null ? '' : nf(v, t.decimals)}</td>`; }).join('')}${can('apagar') ? `<td><button class="small danger" data-del="${r.date}">Apagar</button></td>` : ''}</tr>`).join('')}</table></div>` : '<p class="muted">Nenhum resultado ainda. Preencha acima ou importe o mapa do leite em <a href="#/importar">Importar</a>.</p>'}</div>`;
+    $('#f').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const items = [...document.querySelectorAll('[data-code]')].filter((i) => i.value.trim()).map((i) => ({ client_uuid: uuid(), scope: 'tank', date: $('#d').value, type: i.dataset.code, value: i.value.trim() }));
+      if (!items.length) { $('#e').innerHTML = err('Preencha ao menos um valor.'); return; }
+      setQueue([...getQueue(), ...items]); toast(navigator.onLine ? 'Salvo. Enviando…' : 'Salvo no aparelho. Envia quando voltar o sinal.');
+      await syncQueue(); viewTanque();
+    };
+    document.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => { if (!confirm(`Apagar o resultado de ${fdate(b.dataset.del)}?`)) return; try { await api(`/api/tank/${b.dataset.del}`, { method: 'DELETE' }); viewTanque(); } catch (e) { toast(e.message); } }));
+  } catch (e) { $('main').innerHTML = err(e); }
+}
+const SHORT = { CBT: 'CBT/CPP', SOLIDOS_TOTAIS: 'Sól. totais', PRODUCAO_TOTAL: 'Produção (L)', UREIA: 'Uréia', PROTEINA: 'Proteína' };
+const shortName = (t) => SHORT[t.code] || (t.code.length <= 8 ? t.code : t.name);
+const statusClient = (t, v) => {
+  const hi = (t.tank_alert_high != null && v > t.tank_alert_high) || (t.tank_alert_low != null && v < t.tank_alert_low);
+  const wa = (t.tank_warn_high != null && v > t.tank_warn_high) || (t.tank_warn_low != null && v < t.tank_warn_low);
+  return hi ? 'alerta' : wa ? 'atencao' : 'ok';
+};
+
 // ---------------- rotas ----------------
 function route() {
   killCharts();
   if (!S.user) return viewLogin();
   const [path] = location.hash.slice(2).split('?'); const [page, arg] = path.split('/');
   if (S.user.must_change_password && page !== 'senha') return viewPassword(true);
-  const views = { painel: viewPainel, animais: viewAnimais, animal: () => viewAnimal(arg), lancar: viewLancar, importar: viewImportar, mais: viewMais, senha: () => viewPassword(false), config: viewConfig, usuarios: viewUsuarios, auditoria: viewAuditoria };
+  const views = { painel: viewPainel, animais: viewAnimais, animal: () => viewAnimal(arg), lancar: viewLancar, importar: viewImportar, controle: viewControle, tanque: viewTanque, mais: viewMais, senha: () => viewPassword(false), config: viewConfig, usuarios: viewUsuarios, auditoria: viewAuditoria };
   (views[page] || (can('relatorios') ? viewPainel : viewAnimais))();
 }
 addEventListener('hashchange', route);

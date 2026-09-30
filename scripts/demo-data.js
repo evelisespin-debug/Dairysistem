@@ -27,8 +27,11 @@ const cows = Array.from({ length: COWS }, (_, i) => ({
   fat: 3.75 + 0.35 * gauss(), prot: 3.2 + 0.18 * gauss(),
 }));
 const ids = new Map();
+const lastDate = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 12)).getTime();
 for (const c of cows) {
-  const r = await pool.query(`insert into animals(tag, lot, breed, status) values ($1,$2,$3,'lactacao') returning id`, [c.tag, c.lot, c.breed]);
+  const lac = 1 + Math.floor(rnd() * 5); const del = 10 + Math.floor(rnd() * 380);
+  const r = await pool.query(`insert into animals(tag, lot, breed, status, lactation_number, calving_date) values ($1,$2,$3,'lactacao',$4,$5) returning id`,
+    [c.tag, c.lot, c.breed, lac, new Date(lastDate - del * 864e5).toISOString().slice(0, 10)]);
   ids.set(c.tag, r.rows[0].id);
 }
 const today = new Date(); const dates = [];
@@ -52,7 +55,8 @@ const tank = [];
 dates.forEach((d, mi) => {
   const season = 1 + 0.15 * Math.sin((mi / 12) * 2 * Math.PI);
   tank.push([d, 'CCS', Math.round(260 * season + 25 * gauss())], [d, 'CBT', Math.max(8, Math.round(45 + 25 * rnd() + (mi === 7 ? 90 : 0)))],
-    [d, 'GORDURA', +(3.72 + 0.12 * gauss()).toFixed(2)], [d, 'PROTEINA', +(3.2 + 0.06 * gauss()).toFixed(2)]);
+    [d, 'GORDURA', +(3.72 + 0.12 * gauss()).toFixed(2)], [d, 'PROTEINA', +(3.2 + 0.06 * gauss()).toFixed(2)],
+    [d, 'SOLIDOS_TOTAIS', +(12.5 + 0.2 * gauss()).toFixed(2)], [d, 'UREIA', +(14 + 2 * gauss()).toFixed(1)], [d, 'PRODUCAO_TOTAL', Math.round(11000 + 600 * gauss())]);
 });
 await pool.query(
   `insert into analyses(scope, analysis_date, type_code, value, source)
