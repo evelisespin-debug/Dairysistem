@@ -1,7 +1,7 @@
 // Service worker: guarda o "casco" do site para abrir sem internet.
 // Os lançamentos offline ficam na fila do aparelho (ver app.js) e sobem quando o sinal volta.
-const CACHE = 'shell-v1';
-const SHELL = ['/', '/style.css', '/app.js', '/vendor/chart.umd.js', '/farm/logo', '/manifest.webmanifest'];
+const CACHE = 'shell-v2';
+const SHELL = ['/', '/style.css', '/app.js', '/vendor/chart.umd.js', '/brand/dairyup-vaca.png', '/brand/dairyup-vertical.png', '/brand/icon-192.png', '/manifest.webmanifest'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', (e) => {

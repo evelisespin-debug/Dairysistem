@@ -24,10 +24,9 @@ tpl.initialUsers = [
 ];
 fs.mkdirSync(dir, { recursive: true });
 fs.writeFileSync(path.join(dir, 'farm.config.json'), JSON.stringify(tpl, null, 2) + '\n');
-fs.copyFileSync(path.join(ROOT, 'farms/_template/logo.svg'), path.join(dir, 'logo.svg'));
 console.log(`Fazenda criada em farms/${slug}/\n`);
 console.log('Próximos passos:');
-console.log(`  1. Troque farms/${slug}/logo.svg pelo logotipo da fazenda (SVG ou PNG; ajuste "logo" no farm.config.json).`);
+console.log(`  1. (Opcional) Para usar o logotipo da fazenda, copie o arquivo para farms/${slug}/ e ajuste "logo" no farm.config.json. Sem isso vale a marca DairyUp.`);
 console.log(`  2. Adicione a veterinária em "initialUsers" se ela for atender esta fazenda.`);
 console.log(`  3. Crie o banco e rode:  FARM=${slug} DATABASE_URL=<banco desta fazenda> npm run seed`);
 console.log(`  4. Suba o sistema:       FARM=${slug} DATABASE_URL=<banco desta fazenda> npm start`);

@@ -76,20 +76,35 @@ function shell(html, active) {
   if (can('relatorios')) items.push(['painel', '📊', 'Painel']);
   items.push(['animais', '🐄', 'Animais'], ['lancar', '➕', 'Lançar']);
   if (can('importar')) items.push(['importar', '📥', 'Importar']);
-  items.push(['mais', '☰', 'Mais']);
+  const more = [];
+  if (can('config')) more.push(['config', 'Tipos de análise e limites']);
+  if (can('usuarios')) more.push(['usuarios', 'Usuários']);
+  if (can('auditoria')) more.push(['auditoria', 'Registro de alterações']);
+  more.push(['senha', 'Trocar senha / PIN']);
   $('#app').innerHTML = `
-    <header class="top"><img src="/farm/logo" alt=""><b>${esc(S.farm.name)}</b><span id="netbadge" class="badge">Online</span>
-      <nav class="bottom">${items.map(([k, ic, l]) => `<a href="#/${k}" class="${active === k ? 'on' : ''}"><span class="ic">${ic}</span>${l}</a>`).join('')}</nav></header>
-    <main>${html}</main>`;
+    <aside class="side"><img class="logo" src="/brand/dairyup-vertical.png" alt="DairyUp">
+      <div class="who"><b>${esc(S.farm.name)}</b>${esc(S.user.name)} · ${ROLE[S.user.role]}</div>
+      ${items.map(([k, , l]) => `<a href="#/${k}" class="${active === k ? 'on' : ''}">${l}</a>`).join('')}
+      <div class="sect">Configurações</div>
+      ${more.map(([k, l]) => `<a href="#/${k}" class="${location.hash.startsWith('#/' + k) ? 'on' : ''}">${l}</a>`).join('')}
+      ${can('exportar') ? '<a href="#" data-x="exp">Exportar dados (planilha)</a>' : ''}
+      <a href="#" data-x="out">Sair</a></aside>
+    <div class="content"><header class="top"><img src="/brand/dairyup-vaca.png" alt="DairyUp"><b>${esc(S.farm.name)}</b><span id="netbadge" class="badge">Online</span></header>
+    <main>${html}</main></div>
+    <nav class="bottom">${items.concat([['mais', '☰', 'Mais']]).map(([k, ic, l]) => `<a href="#/${k}" class="${active === k ? 'on' : ''}"><span class="ic">${ic}</span>${l}</a>`).join('')}</nav>`;
+  $('[data-x=out]').onclick = (e) => { e.preventDefault(); logout(); };
+  if ($('[data-x=exp]')) $('[data-x=exp]').onclick = (e) => { e.preventDefault(); exportAll(); };
   updateBadge();
+}
+async function exportAll() {
+  try { const blob = await api('/api/export/all.xlsx'); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${S.farm.slug}-dados.xlsx`; a.click(); toast('Planilha gerada.'); } catch (x) { toast(x.message); }
 }
 const err = (e) => `<div class="msg err">${esc(e.message || e)}</div>`;
 
 // ---------------- login ----------------
 function viewLogin(message) {
   killCharts();
-  $('#app').innerHTML = `<div class="login"><img src="/farm/logo" alt=""><h1>${esc(S.farm.name)}</h1>
-    <p class="muted">Gestão do rebanho</p>${message ? `<div class="msg info">${esc(message)}</div>` : ''}
+  $('#app').innerHTML = `<div class="login"><img src="/brand/dairyup-vertical.png" alt="DairyUp"><h1>${esc(S.farm.name)}</h1>${message ? `<div class="msg info">${esc(message)}</div>` : ''}
     <form id="f" class="card"><label for="em">E-mail</label><input id="em" type="email" autocomplete="username" required value="${esc(localStorage.getItem('lastEmail') || '')}">
       <label for="pw" id="pwl">Senha</label><input id="pw" type="password" autocomplete="current-password" required>
       <div id="e"></div><div style="margin-top:14px"><button class="primary" style="width:100%">Entrar</button></div>
@@ -374,10 +389,7 @@ function viewMais() {
     ${can('exportar') ? '<a class="item" href="#" id="exp"><span>Exportar todos os dados (planilha)</span><span>⬇</span></a>' : ''}
     <a class="item" href="#" id="out"><span>Sair</span><span></span></a></div>`, 'mais');
   $('#out').onclick = (e) => { e.preventDefault(); logout(); };
-  if ($('#exp')) $('#exp').onclick = async (e) => {
-    e.preventDefault();
-    try { const blob = await api('/api/export/all.xlsx'); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${S.farm.slug}-dados.xlsx`; a.click(); toast('Planilha gerada.'); } catch (x) { toast(x.message); }
-  };
+  if ($('#exp')) $('#exp').onclick = (e) => { e.preventDefault(); exportAll(); };
 }
 
 async function viewConfig() {

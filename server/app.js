@@ -37,8 +37,8 @@ export async function buildApp({ pool, farm, logger = false }) {
   // ---------- fazenda (pública: nome e logo para a tela de login) ----------
   app.get('/api/farm', async () => ({ slug: farm.slug, name: farm.name, modules: farm.modules }));
   app.get('/farm/logo', async (req, reply) => {
-    const f = path.join(farm.dir, farm.logo || 'logo.svg');
-    if (!fs.existsSync(f)) return reply.code(404).send();
+    const f = farm.logo ? path.join(farm.dir, farm.logo) : null;
+    if (!f || !fs.existsSync(f)) return reply.redirect('/brand/dairyup-vaca.png');   // sem logo próprio: marca DairyUp
     reply.type(f.endsWith('.svg') ? 'image/svg+xml' : f.endsWith('.png') ? 'image/png' : 'image/jpeg')
       .header('cache-control', 'public, max-age=3600');
     return reply.send(fs.createReadStream(f));
@@ -374,8 +374,8 @@ export async function buildApp({ pool, farm, logger = false }) {
   });
   app.get('/manifest.webmanifest', async (req, reply) => reply.type('application/manifest+json').send({
     name: farm.name, short_name: farm.name.slice(0, 12), start_url: '/', display: 'standalone', lang: 'pt-BR',
-    background_color: '#f4f7f5', theme_color: '#1f6f5c',
-    icons: [{ src: '/farm/logo', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
+    background_color: '#f4f4f8', theme_color: '#142e39',
+    icons: [{ src: '/brand/icon-192.png', sizes: '192x192', type: 'image/png' }, { src: '/brand/icon-512.png', sizes: '512x512', type: 'image/png' }],
   }));
   app.setNotFoundHandler((req, reply) => req.url.startsWith('/api/') ? fail(reply, 404, 'Não encontrado.') : reply.sendFile('index.html'));
   return app;
