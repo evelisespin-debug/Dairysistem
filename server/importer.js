@@ -34,11 +34,7 @@ function parseCsv(text) {
   return rows;
 }
 
-async function parseXlsx(buffer) {
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
-  const ws = wb.worksheets.find((w) => w.rowCount > 0);
-  if (!ws) return [];
+function sheetRows(ws) {
   const rows = [];
   ws.eachRow({ includeEmpty: false }, (r) => {
     const vals = [];
@@ -52,6 +48,22 @@ async function parseXlsx(buffer) {
     rows.push(vals);
   });
   return rows;
+}
+
+async function parseXlsx(buffer) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  const ws = wb.worksheets.find((w) => w.rowCount > 0);
+  return ws ? sheetRows(ws) : [];
+}
+
+// todas as abas (planilhas com várias abas, como o resultado genômico); CSV vira uma aba só
+export async function readSheets(buffer, filename = '') {
+  if (/\.xls$/i.test(filename)) throw new Error('Arquivo .xls antigo não é suportado. Salve como .xlsx ou .csv no Excel.');
+  if (!(buffer[0] === 0x50 && buffer[1] === 0x4b)) return [parseCsv(buffer.toString('utf8'))];
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  return wb.worksheets.filter((w) => w.rowCount > 0).map(sheetRows);
 }
 
 export async function readRaw(buffer, filename = '') {

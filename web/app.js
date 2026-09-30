@@ -76,7 +76,7 @@ function shell(html, active) {
   if (can('relatorios')) items.push(['painel', '📊', 'Painel'], ['gestao', '📈', 'Gestão']);
   items.push(['animais', '🐄', 'Animais'], ['lancar', '➕', 'Lançar']);
   if (can('importar')) items.push(['importar', '📥', 'Importar']);
-  const reports = can('relatorios') ? [['anual', 'Painel anual'], ['controle', 'Controle leiteiro'], ['tanque', 'Tanque / laticínio']] : [];
+  const reports = can('relatorios') ? [['anual', 'Painel anual'], ['controle', 'Controle leiteiro'], ['tanque', 'Tanque / laticínio'], ['genetica', 'Genética']] : [];
   const more = [];
   if (can('config')) more.push(['config', 'Tipos de análise e limites'], ['metas', 'Metas da fazenda']);
   if (can('usuarios')) more.push(['usuarios', 'Usuários']);
@@ -276,7 +276,7 @@ async function viewAnimal(id) {
         <div><div class="muted small">Lactação (LAC)</div><b>${a.lactation_number ?? '—'}</b></div><div><div class="muted small">DEL na última coleta${dates.length ? ' (' + fdate(dates[dates.length - 1]) + ')' : ''}</div><b>${a.calving_date ? Math.max(0, Math.round((new Date((dates[dates.length - 1] || today()) + 'T00:00:00Z') - new Date(a.calving_date + 'T00:00:00Z')) / 864e5)) : '—'}</b></div>
         ${a.notes ? `<p class="small">${esc(a.notes)}</p>` : ''}
         <div class="row" style="margin-top:10px">${can('lancar') ? `<a class="btn fit primary" href="#/lancar?tag=${encodeURIComponent(a.tag)}">➕ Lançar análise</a>` : ''}${can('corrigir') ? '<button class="fit" id="ed">Editar</button>' : ''}${can('apagar') ? `<button class="fit danger" id="del">${a.deleted_at ? 'Restaurar' : 'Apagar'}</button>` : ''}</div></div>
-      <div id="editbox"></div>
+      <div id="editbox"></div><div id="gen"></div>
       ${dates.length ? `<div class="grid two">${types.filter((t) => analyses.some((x) => x.type_code === t.code)).map((t) => `<div class="card"><h2>${esc(t.name)} <span class="muted small">${esc(t.unit)}</span></h2><div class="chart short"><canvas id="c_${t.code}"></canvas></div></div>`).join('')}</div>
       <div class="card"><h2>Histórico</h2><div class="scroll"><table><tr><th>Data</th>${types.map((t) => `<th class="n">${esc(t.code)}</th>`).join('')}</tr>
         ${[...dates].reverse().map((d) => `<tr><td>${fdate(d)}</td>${types.map((t) => { const v = val(d, t.code); return `<td class="n">${v ? `<span style="color:var(--${v.status === 'alerta' ? 'bad' : v.status === 'atencao' ? 'warn' : 'ink'})">${nf(v.value, t.decimals)}</span>${can('corrigir') ? ` <a href="#" class="small" data-edit="${v.id}" data-v="${v.value}" title="Corrigir">✎</a>` : ''}` : ''}</td>`; }).join('')}</tr>`).join('')}</table></div></div>` : '<div class="card muted">Sem análises registradas para este animal.</div>'}`;
@@ -289,6 +289,13 @@ async function viewAnimal(id) {
         line(t.alert_high ?? t.alert_low, css('--bad'), 'Limite alerta'), line(t.warn_high ?? t.warn_low, css('--warn'), 'Limite atenção')].filter(Boolean) },
         options: { plugins: { legend: { display: false } } } });
     }
+    api(`/api/animals/${a.id}/genomics`).then((g) => {
+      const tr = Object.entries(g.traits || {}).map(([k, v]) => `<div><div class="muted small">${esc(k)}</div><b>${typeof v === 'number' ? nf(v, Math.abs(v) < 10 ? 2 : 0) : esc(v)}</b></div>`).join('');
+      $('#gen').innerHTML = `<div class="card"><h2>Genômica</h2><div class="grid"><div><div class="muted small">TPI</div><b>${nf(g.tpi)}</b></div><div><div class="muted small">NM$</div><b>${nf(g.nm)}</b></div><div><div class="muted small">Leite</div><b>${nf(g.milk)}</b></div><div><div class="muted small">DPR</div><b>${nf(g.dpr, 2)}</b></div>
+        <div><div class="muted small">Pai</div><b>${esc(g.sire_name || '—')}</b></div><div><div class="muted small">Beta / Kappa-caseína</div><b>${esc(g.beta_casein || '—')} · ${esc(g.kappa_casein || '—')}</b></div>
+        <div><div class="muted small">Haplótipos</div><b>${g.haplotypes.length ? esc(g.haplotypes.join(', ')) : 'livre'}</b></div></div>
+        <details><summary class="small">Todos os índices</summary><div class="grid">${tr}</div></details></div>`;
+    }).catch(() => {});
     if ($('#ed')) $('#ed').onclick = () => {
       $('#editbox').innerHTML = animalForm(a);
       $('#f').onsubmit = async (ev) => { ev.preventDefault(); try { await api(`/api/animals/${a.id}`, { method: 'PUT', body: animalBody() }); toast('Salvo.'); viewAnimal(id); } catch (e) { $('#e').innerHTML = err(e); } };
@@ -344,17 +351,31 @@ async function viewImportar() {
   if (!can('importar')) return (location.hash = '#/animais');
   shell(`<h1>Importar planilha</h1><form id="f" class="card">
     <p class="muted small">Envie o relatório do controle leiteiro oficial (APCBRH: <b>Relatório 2</b> e <b>Relatório 2.2</b> são reconhecidos automaticamente, com o tanque) ou uma planilha sua em Excel (.xlsx) ou CSV com colunas como Brinco, Data, CCS, Gordura, Proteína e CBT. Enviar o mesmo arquivo de novo não duplica nada.</p>
-    <label>Se for uma planilha comum, o que ela contém?</label><select id="sc"><option value="animal">Análises por vaca (controle leiteiro)</option><option value="tank">Mapa do leite (tanque / laticínio)</option></select>
+    <label>Se for uma planilha comum, o que ela contém?</label><select id="sc"><option value="animal">Análises por vaca (controle leiteiro)</option><option value="tank">Mapa do leite (tanque / laticínio)</option><option value="genomics">Resultado genômico (TPI, pais, haplótipos…)</option></select>
     <label>Arquivo</label><input id="file" type="file" accept=".xlsx,.csv,.txt" required>
     <label>Data padrão (só se a planilha não tiver coluna de data)</label><input id="dd" type="date">
     <label style="display:flex;gap:8px;align-items:center;color:var(--ink)" id="cml"><input id="cm" type="checkbox" checked style="width:auto;min-height:0"> Cadastrar automaticamente os brincos que ainda não existem</label>
     <div id="e"></div><div style="margin-top:14px"><button class="primary">Ver prévia</button></div></form><div id="prev"></div>
     <div class="card"><h2>Importações anteriores</h2><div id="hist" class="scroll muted">Carregando…</div></div>`, 'importar');
   $('#sc').onchange = () => { $('#cml').style.display = $('#sc').value === 'tank' ? 'none' : 'flex'; };
+  const sendGen = (commit) => { const fd = new FormData(); fd.append('commit', commit ? '1' : '0'); fd.append('create_missing', $('#cm').checked ? '1' : '0'); fd.append('file', $('#file').files[0]); return api('/api/import/genomics', { method: 'POST', form: fd }); };
+  const genFlow = async () => {
+    const p = await sendGen(false);
+    $('#prev').innerHTML = `<div class="card"><h2>Prévia — nada foi gravado ainda</h2><p><b>Resultado genômico</b></p>
+      <p>${nf(p.animals)} animais no arquivo · <b>${nf(p.animals_missing)}</b> ainda não cadastrados${p.missing_sample.length ? ` (ex.: ${p.missing_sample.map(esc).join(', ')})` : ''} · ${nf(p.haplotype_carriers)} portador(es) de haplótipo</p>
+      ${p.errors_total ? `<div class="msg info"><b>${p.errors_total}</b> linhas sem ID serão ignoradas.</div>` : ''}
+      <button class="primary" id="go">Confirmar importação</button></div>`;
+    $('#go').onclick = async () => {
+      $('#go').disabled = true;
+      try { const r = await sendGen(true); $('#prev').innerHTML = `<div class="msg okm">Importado: <b>${r.matched}</b> animais atualizados${r.created ? `, <b>${r.created}</b> cadastrados` : ''}${r.skipped ? `, ${r.skipped} ignorados (brinco não cadastrado)` : ''}. <a href="#/genetica">Ver painel de genética</a></div>`; $('#f').reset(); }
+      catch (e) { $('#prev').innerHTML = err(e); }
+    };
+  };
   const send = (commit) => { const fd = new FormData(); fd.append('scope', $('#sc').value); fd.append('commit', commit ? '1' : '0'); fd.append('create_missing', $('#cm').checked ? '1' : '0'); if ($('#dd').value) fd.append('default_date', $('#dd').value); fd.append('file', $('#file').files[0]); return api('/api/import', { method: 'POST', form: fd }); };
   $('#f').onsubmit = async (ev) => {
     ev.preventDefault(); $('#e').innerHTML = ''; const btn = $('#f button'); btn.disabled = true;
     try {
+      if ($('#sc').value === 'genomics') { await genFlow(); return; }
       const p = await send(false);
       const cols = Array.isArray(p.columns) ? `<p class="small">Colunas reconhecidas: ${p.columns.map((c) => `${esc(c.header)} → <b>${c.code}</b>`).join(' · ')}</p>` : '';
       const types = p.by_type ? Object.entries(p.by_type).map(([k, v]) => `${esc(k)}: ${nf(v)}`).join(' · ') : '';
@@ -387,12 +408,34 @@ async function viewImportar() {
   loadHist();
 }
 
+// ---------------- genética ----------------
+async function viewGenetica() {
+  if (!can('relatorios')) return (location.hash = '#/animais');
+  shell('<h1>Genética do rebanho</h1><p class="muted">Carregando…</p>', 'genetica');
+  let g; try { g = await api('/api/dashboard/genetics'); } catch (e) { return shell(`<h1>Genética do rebanho</h1>${err(e)}`, 'genetica'); }
+  if (!g.total) return shell('<h1>Genética do rebanho</h1><div class="card"><p>Nenhum resultado genômico ainda. Envie o arquivo em <a href="#/importar">Importar</a> → Resultado genômico.</p></div>', 'genetica');
+  const dist = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${esc(k)}: <b>${nf(v)}</b> (${nf(v / g.total * 100, 0)}%)`).join(' · ');
+  shell(`<div class="gray"><h1>Genética do rebanho</h1>
+    <div class="card"><p><b>${nf(g.total)}</b> animais genotipados · TPI médio <b>${nf(g.tpi_avg)}</b> · Leite (PTA) <b>${nf(g.milk_avg)}</b> · DPR <b>${nf(g.dpr_avg, 2)}</b></p></div>
+    <div class="card"><h2>Evolução por ano de nascimento</h2><div style="height:240px"><canvas id="cy"></canvas></div>
+      <div class="scroll"><table><tr><th>Ano</th><th class="n">Animais</th><th class="n">TPI</th><th class="n">Leite</th><th class="n">%Gor</th><th class="n">DPR</th></tr>${g.by_year.map((y) => `<tr><td>${y.year}</td><td class="n">${y.n}</td><td class="n">${nf(y.tpi)}</td><td class="n">${nf(y.milk)}</td><td class="n">${nf(y.fat_pct, 3)}</td><td class="n">${nf(y.dpr, 2)}</td></tr>`).join('')}</table></div></div>
+    <div class="card"><h2>Haplótipos e caseínas</h2>
+      ${g.haplotypes.length ? g.haplotypes.map((h) => `<p><b>${esc(h.code)}</b>: ${h.n} portador(es) <span class="small muted">(ex.: ${h.sample.map(esc).join(', ')})</span></p>`).join('') : '<p class="muted">Nenhum portador.</p>'}
+      <p class="small">Beta-caseína: ${dist(g.beta_casein)}</p><p class="small">Kappa-caseína: ${dist(g.kappa_casein)}</p></div>
+    <div class="card"><h2>Conferência de paternidade</h2>
+      <p>${g.sire_mismatch ? `<b>${g.sire_mismatch}</b> animal(is) com touro diferente do informado` : 'Nenhuma divergência de touro.'}${g.sire_not_found ? ` · ${g.sire_not_found} sem touro identificado` : ''}</p>
+      ${g.sire_mismatch_list.length ? `<div class="scroll"><table><tr><th>Animal</th><th>Informado</th><th>Correto</th></tr>${g.sire_mismatch_list.map((m) => `<tr><td><a href="#/animal/${m.id}">${esc(m.tag)}</a></td><td>${esc(m.sent)}</td><td>${esc(m.correct)}</td></tr>`).join('')}</table></div>` : ''}</div>
+    <div class="card"><h2>Pais mais usados</h2><div class="scroll"><table><tr><th>Touro</th><th class="n">Filhas</th><th class="n">TPI médio</th><th class="n">Leite</th><th class="n">DPR</th></tr>${g.sires.map((s) => `<tr><td>${esc(s.sire)}</td><td class="n">${s.n}</td><td class="n">${nf(s.tpi)}</td><td class="n">${nf(s.milk)}</td><td class="n">${nf(s.dpr, 2)}</td></tr>`).join('')}</table></div></div>
+    <div class="card"><h2>Melhores animais (TPI)</h2><div class="scroll"><table><tr><th>Animal</th><th>Pai</th><th class="n">TPI</th><th class="n">Leite</th><th class="n">DPR</th></tr>${g.top.map((a) => `<tr><td><a href="#/animal/${a.id}">${esc(a.tag)}</a></td><td>${esc(a.sire || '—')}</td><td class="n">${nf(a.tpi)}</td><td class="n">${nf(a.milk)}</td><td class="n">${nf(a.dpr, 2)}</td></tr>`).join('')}</table></div></div></div>`, 'genetica');
+  chart($('#cy'), { type: 'line', data: { labels: g.by_year.map((y) => y.year), datasets: [{ label: 'TPI médio', data: g.by_year.map((y) => y.tpi), borderColor: '#555', backgroundColor: '#888', tension: .2 }] }, options: { plugins: { legend: { display: false } } } });
+}
+
 // ---------------- mais / configurações ----------------
 function viewMais() {
   shell(`<h1>Mais</h1><div class="card list">
     <div class="item"><span><b>${esc(S.user.name)}</b><br><span class="muted small">${esc(S.user.email)} · ${ROLE[S.user.role]}</span></span></div>
     <a class="item" href="#/senha"><span>Trocar senha / PIN</span><span>›</span></a>
-    ${can('relatorios') ? '<a class="item" href="#/anual"><span>Painel de gestão anual</span><span>›</span></a><a class="item" href="#/controle"><span>Controle leiteiro (por vaca)</span><span>›</span></a><a class="item" href="#/tanque"><span>Tanque / laticínio</span><span>›</span></a>' : ''}
+    ${can('relatorios') ? '<a class="item" href="#/anual"><span>Painel de gestão anual</span><span>›</span></a><a class="item" href="#/controle"><span>Controle leiteiro (por vaca)</span><span>›</span></a><a class="item" href="#/tanque"><span>Tanque / laticínio</span><span>›</span></a><a class="item" href="#/genetica"><span>Genética do rebanho</span><span>›</span></a>' : ''}
     ${can('config') ? '<a class="item" href="#/config"><span>Tipos de análise e limites de alerta</span><span>›</span></a>' : ''}
     ${can('usuarios') ? '<a class="item" href="#/usuarios"><span>Usuários da fazenda</span><span>›</span></a>' : ''}
     ${can('auditoria') ? '<a class="item" href="#/auditoria"><span>Registro de alterações</span><span>›</span></a>' : ''}
@@ -687,7 +730,7 @@ function route() {
   if (!S.user) return viewLogin();
   const [path] = location.hash.slice(2).split('?'); const [page, arg] = path.split('/');
   if (S.user.must_change_password && page !== 'senha') return viewPassword(true);
-  const views = { painel: viewPainel, animais: viewAnimais, animal: () => viewAnimal(arg), lancar: viewLancar, importar: viewImportar, gestao: viewGestao, anual: viewAnual, metas: viewMetas, controle: viewControle, tanque: viewTanque, mais: viewMais, senha: () => viewPassword(false), config: viewConfig, usuarios: viewUsuarios, auditoria: viewAuditoria };
+  const views = { painel: viewPainel, animais: viewAnimais, animal: () => viewAnimal(arg), lancar: viewLancar, importar: viewImportar, gestao: viewGestao, anual: viewAnual, metas: viewMetas, controle: viewControle, tanque: viewTanque, genetica: viewGenetica, mais: viewMais, senha: () => viewPassword(false), config: viewConfig, usuarios: viewUsuarios, auditoria: viewAuditoria };
   (views[page] || (can('relatorios') ? viewPainel : viewAnimais))();
 }
 addEventListener('hashchange', route);

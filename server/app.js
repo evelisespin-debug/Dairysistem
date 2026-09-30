@@ -8,7 +8,8 @@ import { ROOT } from './config.js';
 import { audit, can, login, publicUser, userFromRequest } from './auth.js';
 import { hashSecret, verifySecret, tokenHash, randomPassword } from './security.js';
 import { saveManualAnalysis } from './analysisService.js';
-import { readRaw, tableFromRaw, buildRecords } from './importer.js';
+import { readRaw, readSheets, tableFromRaw, buildRecords } from './importer.js';
+import { genomicsTable, buildGenomics, saveGenomics, genetics } from './genomics.js';
 import { parseApcbrh } from './apcbrh.js';
 import * as Q from './quality.js';
 import { management, getTargets, DEFAULT_TARGETS } from './management.js';
@@ -395,6 +396,32 @@ export async function buildApp({ pool, farm, logger = false }) {
     await pool.query('update import_batches set undone_at = now() where id = $1', [id]);
     await audit(pool, req.user.id, 'apagar', 'import_batch', id, { registros: r.rowCount });
     return { removed: r.rowCount };
+  });
+
+  // ---------- genética (resultado genômico) ----------
+  app.post('/api/import/genomics', { preHandler: guard('importar') }, async (req, reply) => {
+    let file = null; const f = {};
+    for await (const p of req.parts()) { if (p.type === 'file') file = { name: p.filename, buffer: await p.toBuffer() }; else f[p.fieldname] = p.value; }
+    if (!file) return fail(reply, 400, 'Envie o arquivo de resultados genômicos (.xlsx ou .csv).');
+    let table;
+    try { table = genomicsTable(await readSheets(file.buffer, file.name)); } catch (e) { return fail(reply, 400, `Não consegui ler o arquivo: ${e.message}`); }
+    if (!table) return fail(reply, 400, 'Não encontrei as colunas ID e TPI. Confira se é o arquivo de resultados genômicos.');
+    const { records, errors } = buildGenomics(table);
+    const { rows: known } = await pool.query('select upper(tag) t from animals where deleted_at is null');
+    const ks = new Set(known.map((r) => r.t));
+    const missing = records.filter((r) => !ks.has(r.tag.toUpperCase()));
+    const createMissing = f.create_missing !== '0';
+    const out = { rows_read: table.rows.length, animals: records.length, animals_missing: missing.length, missing_sample: missing.slice(0, 8).map((r) => r.tag),
+      errors_total: errors.length, errors: errors.slice(0, 20), haplotype_carriers: records.filter((r) => r.haplotypes.length).length };
+    if (f.commit !== '1') return out;
+    const res = await saveGenomics(pool, records, { createMissing, userId: req.user.id });
+    await audit(pool, req.user.id, 'importar', 'genomics', null, { arquivo: file.name, ...res });
+    return { ...out, ...res };
+  });
+  app.get('/api/dashboard/genetics', { preHandler: guard('relatorios') }, async () => genetics(pool));
+  app.get('/api/animals/:id/genomics', { preHandler: guard('ver_ficha') }, async (req, reply) => {
+    const { rows } = await pool.query('select * from animal_genomics where animal_id = $1', [+req.params.id]);
+    return rows[0] || fail(reply, 404, 'Sem resultado genômico.');
   });
 
   // ---------- dashboards ----------

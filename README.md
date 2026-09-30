@@ -37,6 +37,8 @@ Formato "longo" (colunas Tipo + Valor) também funciona. Reenviar o mesmo arquiv
 **Relatórios oficiais do controle leiteiro (APCBRH)** são reconhecidos sozinhos: o *Relatório 2* (Sumário de CCS e produção: 12 controles, CCS, leite, gordura, proteína, LAC, parto, registro e tanque) e o *Relatório 2.2* (Impacto da CCS no tanque: lote, parto, produção). Vaca marcada "BAIXA" entra como descartada. O impacto no tanque usa a mesma conta do relatório oficial (CCS × leite ÷ soma de CCS × leite; conferida em 404 vacas). Exemplos em `docs/exemplos/`. Para o mapa do leite do laticínio, escolha "Mapa do leite (tanque)".
 Novas análises (ureia, lactose…) são criadas na tela **Mais → Tipos de análise**, sem mexer no código.
 
+**Resultado genômico:** em *Importar*, escolha "Resultado genômico" e envie o arquivo em `.xlsx` ou `.csv` (se vier em `.xls`, abra no Excel e salve como `.xlsx`). A aba com as colunas ID e TPI é achada sozinha; o ID casa com o brinco. Gera o painel **Genética** (em cinza): TPI por ano de nascimento, pais, haplótipos, caseínas, conferência de paternidade e melhores animais; a ficha do animal mostra os índices.
+
 ## Perfis
 | Perfil | Pode |
 |---|---|

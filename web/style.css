@@ -108,3 +108,10 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 
 table.annual td,table.annual th{white-space:nowrap;font-size:.82rem}
 table.annual tr.sec td{background:var(--navy);color:#fff;font-weight:700;text-align:center}
+
+/* Painel de genética em tons de cinza */
+.gray{--card:#ececec;--line:#c9c9c9;--ink:#2b2b2b;--muted:#6b6b6b;--brand:#555;--c1:#555;--c2:#888;--c3:#aaa}
+.gray .card{background:var(--card);border-color:var(--line)}
+.gray th{background:#dcdcdc;color:#2b2b2b}
+.gray a{color:#3a3a3a}
+@media (prefers-color-scheme:dark){.gray{--card:#2a2a2a;--line:#444;--ink:#e4e4e4;--muted:#a0a0a0;--brand:#bbb;--c1:#ccc;--c2:#999;--c3:#777}.gray th{background:#3a3a3a;color:#e4e4e4}.gray a{color:#ddd}}
