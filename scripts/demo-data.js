@@ -33,6 +33,11 @@ for (const c of cows) {
   const r = await pool.query(`insert into animals(tag, lot, breed, status, lactation_number, calving_date) values ($1,$2,$3,'lactacao',$4,$5) returning id`,
     [c.tag, c.lot, c.breed, lac, new Date(lastDate - del * 864e5).toISOString().slice(0, 10)]);
   ids.set(c.tag, r.rows[0].id);
+  // histórico de lactações: a atual e a anterior (para o DEL dos testes mais antigos)
+  const calv = lastDate - del * 864e5;
+  await pool.query('insert into animal_lactations(animal_id, calving_date, lactation_number) values ($1,$2,$3) on conflict do nothing', [r.rows[0].id, new Date(calv).toISOString().slice(0, 10), lac]);
+  if (lac > 1) await pool.query('insert into animal_lactations(animal_id, calving_date, lactation_number) values ($1,$2,$3) on conflict do nothing', [r.rows[0].id, new Date(calv - 400 * 864e5).toISOString().slice(0, 10), lac - 1]);
+  c.milk = 30 + 12 * rnd();
 }
 const today = new Date(); const dates = [];
 for (let m = MONTHS - 1; m >= 0; m--) dates.push(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - m, 12)).toISOString().slice(0, 10));
@@ -43,13 +48,14 @@ dates.forEach((d, mi) => {
     if (rnd() < 0.04) continue;                                           // vaca sem teste nesse mês
     const ccs = Math.max(8, Math.round(Math.exp(c.cs + 0.55 * gauss()) * 28 * season));
     rows.push([ids.get(c.tag), d, 'CCS', ccs]);
+    rows.push([ids.get(c.tag), d, 'LEITE', Math.max(8, +(c.milk - (ccs >= 200 ? 4 + 2 * rnd() : 0) + 2.5 * gauss()).toFixed(1))]);
     rows.push([ids.get(c.tag), d, 'GORDURA', Math.max(2.2, +(c.fat + 0.25 * gauss()).toFixed(2))]);
     rows.push([ids.get(c.tag), d, 'PROTEINA', Math.max(2.4, +(c.prot + 0.12 * gauss()).toFixed(2))]);
   }
 });
 await pool.query(
   `insert into analyses(scope, animal_id, analysis_date, type_code, value, source)
-   select 'animal', a, d::date, t, v, 'demo' from unnest($1::bigint[], $2::text[], $3::text[], $4::numeric[]) x(a, d, t, v)`,
+   select 'animal', a, d::date, t, v, 'importacao' from unnest($1::bigint[], $2::text[], $3::text[], $4::numeric[]) x(a, d, t, v)`,
   [rows.map((r) => r[0]), rows.map((r) => r[1]), rows.map((r) => r[2]), rows.map((r) => r[3])]);
 const tank = [];
 dates.forEach((d, mi) => {
@@ -60,7 +66,7 @@ dates.forEach((d, mi) => {
 });
 await pool.query(
   `insert into analyses(scope, analysis_date, type_code, value, source)
-   select 'tank', d::date, t, v, 'demo' from unnest($1::text[], $2::text[], $3::numeric[]) x(d, t, v)`,
+   select 'tank', d::date, t, v, 'importacao' from unnest($1::text[], $2::text[], $3::numeric[]) x(d, t, v)`,
   [tank.map((r) => r[0]), tank.map((r) => r[1]), tank.map((r) => r[2])]);
 console.log(`Dados fictícios: ${COWS} vacas, ${dates.length} coletas, ${rows.length} análises + ${tank.length} do tanque.`);
 console.log(`Login de teste: ${farm.initialUsers.map((u) => u.email).join(' | ')}  — senha: ${PASS}`);
