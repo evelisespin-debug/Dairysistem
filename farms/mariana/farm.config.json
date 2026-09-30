@@ -1,0 +1,26 @@
+{
+  "slug": "mariana",
+  "name": "Fazenda Mariana",
+  "logo": "logo.svg",
+  "domain": "mariana.seudominio.com.br",
+  "timezone": "America/Sao_Paulo",
+  "modules": {
+    "quality": true,
+    "animals": true,
+    "production": false,
+    "events": false,
+    "finance": false
+  },
+  "initialUsers": [
+    {
+      "name": "Dono da Fazenda Mariana",
+      "email": "dono@mariana.exemplo.com.br",
+      "role": "dono"
+    },
+    {
+      "name": "Evelise (Veterinária)",
+      "email": "evelisespin@gmail.com",
+      "role": "veterinaria"
+    }
+  ]
+}

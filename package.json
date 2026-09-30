@@ -1,0 +1,26 @@
+{
+  "name": "dairysistem",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Sistema de gestão de rebanho leiteiro - um código, uma cópia por fazenda",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "migrate": "node server/migrate.js",
+    "seed": "node server/seed.js",
+    "new-farm": "node scripts/new-farm.js",
+    "demo-data": "node scripts/demo-data.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js"
+  },
+  "dependencies": {
+    "@fastify/multipart": "^10.1.2",
+    "@fastify/static": "^10.1.5",
+    "chart.js": "^4.5.1",
+    "exceljs": "^4.4.0",
+    "fastify": "^5.12.5",
+    "pg": "^8.23.0"
+  }
+}

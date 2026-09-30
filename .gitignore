@@ -1,0 +1,8 @@
+node_modules/
+.env
+*.log
+.terraform/
+*.tfstate*
+*.tfvars
+!*.tfvars.example
+/farms/*/secrets*
