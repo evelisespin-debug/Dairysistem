@@ -284,15 +284,40 @@ export async function buildApp({ pool, farm, logger = false }) {
     const tags = [...new Set(records.filter((r) => r.scope === 'animal').map((r) => r.tag))];
     const missing = tags.filter((t) => !known.has(t.toUpperCase()));
     // Sumário (Relatório 2) lista o rebanho todo: vaca cadastrada em lactação que não aparece mais provavelmente saiu (venda, descarte, morte) ou secou
-    if (parsed.format === 'apcbrh-r2') {
+    if (parsed.format === 'apcbrh-r2' && parsed.controls?.length >= 2) {
       const inFile = new Set(tags.map((t) => t.toUpperCase()));
-      const absent = (await pool.query(`select tag from animals where deleted_at is null and status = 'lactacao' order by tag`)).rows.map((r) => r.tag).filter((t) => !inFile.has(t.toUpperCase()));
-      if (absent.length) parsed.warnings.push(`${absent.length} vaca(s) cadastrada(s) em lactação não aparecem neste relatório (ex.: ${absent.slice(0, 8).join(', ')}). Podem ter saído do rebanho ou secado: confira a situação delas.`);
+      const ctl = [...parsed.controls].sort(); const prevControl = ctl[ctl.length - 2];
+      const { rows: cand } = await pool.query(
+        `select a.tag, (select max(x.analysis_date)::text from analyses x where x.animal_id = a.id and x.scope = 'animal' and x.deleted_at is null) as last_test
+           from animals a where a.deleted_at is null and a.status = 'lactacao' order by a.tag`);
+      const absent = cand.filter((r) => !inFile.has(r.tag.toUpperCase()));
+      // controle pulado é comum: quem só faltou no último controle pode voltar no próximo
+      const skipped = absent.filter((r) => r.last_test && r.last_test >= prevControl);
+      const gone = absent.filter((r) => !r.last_test || r.last_test < prevControl);
+      if (skipped.length) parsed.warnings.push(`${skipped.length} vaca(s) cadastrada(s) não aparecem neste relatório mas tiveram teste no controle anterior (ex.: ${skipped.slice(0, 6).map((r) => r.tag).join(', ')}). Podem ter apenas pulado este controle.`);
+      if (gone.length) parsed.warnings.push(`${gone.length} vaca(s) cadastrada(s) em lactação estão sem teste há 2 controles ou mais (ex.: ${gone.slice(0, 6).map((r) => r.tag).join(', ')}). Podem ter saído do rebanho ou secado: confira a situação delas.`);
+    }
+    // vacas que voltam com parto novo: estavam secas (ou fora dos controles) e iniciaram nova lactação
+    const notes = [];
+    if (parsed.meta.size && tags.length) {
+      const { rows: db } = await pool.query(
+        `select a.tag, a.calving_date::text c, a.lactation_number l,
+                (select max(x.analysis_date)::text from analyses x where x.animal_id = a.id and x.scope = 'animal' and x.deleted_at is null) last_test
+           from animals a where a.deleted_at is null and upper(a.tag) = any($1)`, [tags.map((t) => t.toUpperCase())]);
+      const back = [];
+      for (const r of db) {
+        const m = parsed.meta.get(r.tag.toUpperCase()); if (!m?.calving || !r.c || !r.last_test) continue;
+        if (m.calving > r.c && m.calving > r.last_test) back.push({ tag: r.tag, days: Math.round((new Date(m.calving) - new Date(r.last_test)) / 864e5) });
+      }
+      if (back.length) {
+        const ok = back.filter((b) => b.days >= 30 && b.days <= 120); const avg = Math.round(back.reduce((s, b) => s + b.days, 0) / back.length);
+        notes.push(`${back.length} vaca(s) iniciaram nova lactação (parto novo) depois do último teste registrado. Intervalo médio entre o último teste e o parto: ${avg} dias${ok.length ? `; ${ok.length} delas dentro do esperado para secagem de ~60 dias` : ''}.`);
+      }
     }
     const dates = records.map((r) => r.date).sort();
     const perCode = {}; records.forEach((r) => { const k = `${r.scope === 'tank' ? 'Tanque ' : ''}${r.code}`; perCode[k] = (perCode[k] || 0) + 1; });
     const preview = {
-      filename: file.name, format, problems: parsed.problems, warnings: parsed.warnings, columns: columns ?? undefined,
+      filename: file.name, format, problems: parsed.problems, warnings: parsed.warnings, notes, columns: columns ?? undefined,
       rows_read: parsed.cows ?? raw.length, records: records.length, by_type: perCode, errors: parsed.errors.slice(0, 50), errors_total: parsed.errors.length,
       animals_total: tags.length, animals_missing: missing.length, missing_sample: missing.slice(0, 10),
       date_from: dates[0] || null, date_to: dates[dates.length - 1] || null, controls: parsed.controls?.length ?? null,

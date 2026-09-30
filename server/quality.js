@@ -9,7 +9,8 @@ export function thresholds(type, scope = 'animal') {
 export function statusOf(type, value, scope = 'animal') {
   const t = thresholds(type, scope);
   if ((t.alertHigh != null && value > t.alertHigh) || (t.alertLow != null && value < t.alertLow)) return 'alerta';
-  if ((t.warnHigh != null && value > t.warnHigh) || (t.warnLow != null && value < t.warnLow)) return 'atencao';
+  // por vaca o ideal é ficar ABAIXO do limite (CCS 200 já não é sadia); no tanque o limite legal é "até"
+  if ((t.warnHigh != null && (scope === 'tank' ? value > t.warnHigh : value >= t.warnHigh)) || (t.warnLow != null && value < t.warnLow)) return 'atencao';
   return 'ok';
 }
 
@@ -32,6 +33,15 @@ const lotClause = (lot, params) => {
   params.push(lot);
   return ` and a.lot = $${params.length}`;
 };
+
+// Quantos controles a vaca deixou de fazer e o que isso provavelmente significa (heurística provisória, ajustável):
+//   1 = pulou o controle · 2 a 4 = possível secagem (~60 dias sem ordenha) · 5 ou mais = possível saída do rebanho.
+export function absenceHint(missed) {
+  if (missed <= 0) return null;
+  if (missed === 1) return 'pulou';
+  if (missed <= 4) return 'seca';
+  return 'saiu';
+}
 
 // Datas de "coleta" do rebanho, da mais recente para a mais antiga.
 // Lançamentos avulsos (poucas vacas) não contam como coleta: a data precisa ter ao menos
@@ -182,8 +192,8 @@ export async function cowAlerts(db, { code = 'CCS', lot } = {}) {
     if (warn == null) continue;
     const kinds = [];
     if (alert != null && v0 > alert) kinds.push('alta');
-    if (v1 != null && v0 > warn && v1 > warn && (v2 == null || v2 > warn)) kinds.push('cronica');
-    else if (v1 != null && v0 > warn && v1 <= warn) kinds.push('nova');
+    if (v1 != null && v0 >= warn && v1 >= warn && (v2 == null || v2 >= warn)) kinds.push('cronica');
+    else if (v1 != null && v0 >= warn && v1 < warn) kinds.push('nova');
     if (kinds.length) items.push({ id: r.id, tag: r.tag, lot: r.lot, value: v0, previous: v1 ?? null, kinds });
   }
   items.sort((a, b) => b.value - a.value);
@@ -200,14 +210,15 @@ export async function lots(db) {
 // ---------- Relatório de controle leiteiro (por vaca, CCS mês a mês) ----------
 // REGRAS PROVISÓRIAS (a confirmar com a veterinária): meta = limite "atenção" da CCS (200 mil);
 // a situação usa as duas últimas coletas de cada vaca:
-//   sadia = as duas ≤ meta · nova infecção = última > meta e anterior ≤ meta ·
-//   crônica = as duas > meta · curada = última ≤ meta e anterior > meta · sem histórico = só uma coleta.
+// Confirmado: meta 200 mil e sadia = CCS ABAIXO de 200. Ainda provisório: nova infecção / crônica / curada.
+//   sadia = as duas < meta · nova infecção = última ≥ meta e anterior < meta ·
+//   crônica = as duas ≥ meta · curada = última < meta e anterior ≥ meta · sem histórico = só uma coleta.
 export function qualityStatus(last, prev, goal) {
   if (last == null) return null;
-  if (prev == null) return last > goal ? 'acima' : 'sem_historico';
-  if (last > goal && prev > goal) return 'cronica';
-  if (last > goal) return 'nova';
-  if (prev > goal) return 'curada';
+  if (prev == null) return last >= goal ? 'acima' : 'sem_historico';
+  if (last >= goal && prev >= goal) return 'cronica';
+  if (last >= goal) return 'nova';
+  if (prev >= goal) return 'curada';
   return 'sadia';
 }
 
@@ -251,6 +262,8 @@ export async function milkControl(db, { group = 'todas', status = 'todas', lot }
   // produção do dia da coleta mais recente (kg) — base do "impacto no tanque"
   const milk = new Map((await db.query(
     `select animal_id, value from analyses where scope = 'animal' and type_code = 'LEITE' and analysis_date = $1 and deleted_at is null`, [latest])).rows.map((r) => [r.animal_id, r.value]));
+  // datas de controle do rebanho na janela (para contar quantos controles cada vaca deixou de fazer)
+  const controlDates = [...new Set(raw.map((r) => r.d))].sort();
   let rows = [];
   for (const a of byAnimal.values()) {
     const last = a.tests[a.tests.length - 1]; const prev = a.tests[a.tests.length - 2];
@@ -264,7 +277,7 @@ export async function milkControl(db, { group = 'todas', status = 'todas', lot }
       del: a.calving_date ? daysBetween(a.calving_date, latest) : null,
       months: months.map((k) => byMonth[k] ?? null), status: st,
       ccs12: round(mean(a.tests.map((x) => x.value), true), 0), last: last.value,
-      stale: last.d !== latest, milk: last.d === latest ? milk.get(a.id) ?? null : null, impact: null,
+      stale: last.d !== latest, missed: controlDates.filter((d) => d > last.d).length, hint: absenceHint(controlDates.filter((d) => d > last.d).length), last_test: last.d, milk: last.d === latest ? milk.get(a.id) ?? null : null, impact: null,
     });
   }
   // impacto no tanque: parte de cada vaca na soma (CCS x leite) do rebanho — mesma conta do relatório oficial (2.2)
@@ -273,7 +286,7 @@ export async function milkControl(db, { group = 'todas', status = 'todas', lot }
   const dist = { sadia: 0, nova: 0, cronica: 0, curada: 0, acima: 0, sem_historico: 0 };
   rows.forEach((r) => { if (r.status) dist[r.status]++; });
   const accept = { todas: () => true, sadias: (r) => r.status === 'sadia', curadas: (r) => r.status === 'curada', nova: (r) => r.status === 'nova',
-    cronicas: (r) => r.status === 'cronica', acima200: (r) => r.last > goal }[status] || (() => true);
+    cronicas: (r) => r.status === 'cronica', acima200: (r) => r.last >= goal }[status] || (() => true);
   const totalCows = rows.length;
   rows = rows.filter(accept);
   const dels = rows.map((r) => r.del).filter((x) => x != null);
@@ -282,7 +295,7 @@ export async function milkControl(db, { group = 'todas', status = 'todas', lot }
     kpis: {
       quantity: rows.length, pct_herd: totalCows ? round((100 * rows.length) / totalCows, 1) : null,
       avg_del: dels.length ? Math.round(dels.reduce((s, x) => s + x, 0) / dels.length) : null,
-      early_high: rows.filter((r) => r.del != null && r.del < 45 && r.last > goal).length,
+      early_high: rows.filter((r) => r.del != null && r.del < 45 && r.last >= goal).length,
       avg_milk: (() => { const m = rows.map((r) => r.milk).filter((x) => x != null); return m.length ? round(m.reduce((a, b) => a + b, 0) / m.length, 1) : null; })(),
       tank_impact: tankSum > 0 ? round(rows.reduce((a, r) => a + (r.impact || 0), 0), 1) : null,
       tank_ccs: tankSum > 0 ? round(tankSum / [...byAnimal.values()].reduce((sum, a) => { const l = a.tests[a.tests.length - 1]; return sum + (l.d === latest ? milk.get(a.id) || 0 : 0); }, 0), 0) : null,

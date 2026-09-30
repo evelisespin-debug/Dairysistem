@@ -210,3 +210,13 @@ test('filtro Lactantes = testada na coleta mais recente', async () => {
   assert.ok(lact.rows.every((r) => !r.stale));
   assert.equal(lact.kpis.quantity, lact.rows.length);
 });
+
+test('meta de CCS: sadia = abaixo de 200 (200 exato não é sadia)', async () => {
+  const csv = 'Brinco;Data;CCS\n' + ['S1', 'S2', 'S3', 'S4', 'S5'].map((x, i) => `${x};10/09/2026;${[199, 100, 200, 100, 100][i]}`).join('\n') + '\nS1;10/10/2026;199\nS2;10/10/2026;200\nS3;10/10/2026;150\nS4;10/10/2026;100\nS5;10/10/2026;120\n';
+  await t.upload('dono', csv, { commit: '1' });
+  const rep = (await t.call('dono', 'GET', '/api/reports/milk-control')).body;
+  const st = Object.fromEntries(rep.rows.filter((x) => /^S\d$/.test(x.tag)).map((x) => [x.tag, x.status]));
+  assert.equal(st.S1, 'sadia');      // 199 e 199
+  assert.equal(st.S2, 'nova');       // 200 agora, 100 antes: já não é sadia
+  assert.equal(st.S3, 'curada');     // 200 antes, 150 agora
+});

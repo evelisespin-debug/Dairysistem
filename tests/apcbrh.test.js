@@ -109,5 +109,28 @@ test('arquivo que não é do formato esperado continua indo pelo leitor comum', 
 test('relatório 2 mais novo sem uma vaca: avisa que ela sumiu do rebanho', async () => {
   const p = await upload(await r2Buffer('106'), 'R2-novo.xlsx', '0');
   const w = p.warnings.find((x) => /não aparecem/.test(x));
-  assert.ok(w && /1 vaca/.test(w) && w.includes('106'), JSON.stringify(p.warnings));
+  assert.ok(w && /1 vaca/.test(w) && w.includes('106') && /pulado/.test(w), JSON.stringify(p.warnings));   // testada no controle anterior: pode ter só pulado
+});
+
+test('vaca que volta com parto novo depois de ficar sem teste: nova lactação registrada', async () => {
+  const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Planilha1');
+  ws.addRow(['PROPRIETÁRIO:', 'FAZENDA FICTÍCIA']); ws.addRow([]); ws.addRow([]); ws.addRow([]);
+  ws.addRow(['RELATÓRIO 2', null, null, null, null, 'SUMÁRIO DE CÉLULAS SOMÁTICAS E PRODUÇÃO']);
+  ws.addRow(['NÚMERO REGISTRO', 'NOME COMUM DATA PARTO']);
+  const d = new Date(Date.UTC(2026, 4, 20)); const dr = ws.addRow([null, null, null, null, null, d, d]); ws.mergeCells(dr.number, 6, dr.number, 7);
+  ws.addRow([]);
+  // vaca 101 tinha parto em 01/11/2025 e último teste em 17/02/2026; agora vem com parto em 10/04/2026 (LAC 3)
+  ws.addRow(['BX1001', '101', null, 3, null, 90, 30]); ws.addRow([null, '10/04/2026', null, '03/02', null, 3.9, 3.2]);
+  ws.addRow(['ESCORE', 'CCS']);
+  const buf = Buffer.from(await wb.xlsx.writeBuffer());
+  const p = await upload(buf, 'R2-junho.xlsx', '1');
+  assert.ok(p.notes.some((n) => /nova lactação/.test(n) && /2 delas|1 delas|dentro do esperado/.test(n)), JSON.stringify(p.notes));
+  const a = (await t.call('dono', 'GET', '/api/animals/by-tag/101')).body;
+  assert.equal(a.lactation_number, 3); assert.equal(a.calving_date, '2026-04-10');
+});
+
+test('relatório de controle: vaca sem teste recente recebe a leitura pulou / seca / saiu', async () => {
+  const { absenceHint } = await import('../server/quality.js');
+  assert.equal(absenceHint(0), null); assert.equal(absenceHint(1), 'pulou');
+  assert.equal(absenceHint(2), 'seca'); assert.equal(absenceHint(4), 'seca'); assert.equal(absenceHint(5), 'saiu');
 });
