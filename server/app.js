@@ -11,7 +11,7 @@ import { saveManualAnalysis } from './analysisService.js';
 import { readRaw, tableFromRaw, buildRecords } from './importer.js';
 import { parseApcbrh } from './apcbrh.js';
 import * as Q from './quality.js';
-import { management } from './management.js';
+import { management, getTargets, DEFAULT_TARGETS } from './management.js';
 
 const STATUS = ['lactacao', 'seca', 'novilha', 'bezerra', 'descartada', 'vendida', 'morta'];
 
@@ -411,7 +411,17 @@ export async function buildApp({ pool, farm, logger = false }) {
   app.get('/api/dashboard/lots', { preHandler: dash }, async () => Q.lots(pool));
   app.get('/api/reports/milk-control', { preHandler: dash }, async (req, reply) =>
     (await Q.milkControl(pool, { group: req.query.group, status: req.query.status, lot: req.query.lot })) || fail(reply, 404, 'Tipo CCS não configurado.'));
-  app.get('/api/dashboard/management', { preHandler: dash }, async (req) => management(pool, { controls: req.query.controls, lot: req.query.lot }));
+  app.get('/api/dashboard/management', { preHandler: dash }, async (req) => management(pool, { controls: req.query.controls, from: req.query.from, to: req.query.to, group: req.query.group, filter: req.query.filter, lot: req.query.lot }));
+  // metas da fazenda (linhas verdes dos gráficos e "Meta" dos indicadores)
+  app.get('/api/targets', { preHandler: guard('relatorios') }, async () => getTargets(pool));
+  app.put('/api/targets', { preHandler: guard('config') }, async (req, reply) => {
+    const b = req.body || {}; const clean = {};
+    for (const k of Object.keys(DEFAULT_TARGETS)) if (k in b) { const v = b[k] === '' || b[k] === null ? null : Number(b[k]); if (v !== null && (!Number.isFinite(v) || v < 0)) return fail(reply, 400, `Meta inválida: ${k}`); if (v !== null) clean[k] = v; }
+    const cur = await getTargets(pool); const next = { ...cur, ...clean };
+    await pool.query(`update farm set settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{targets}', $1::jsonb), updated_at = now() where id = 1`, [JSON.stringify(next)]);
+    await audit(pool, req.user.id, 'alterar', 'targets', 1, clean);
+    return next;
+  });
   app.get('/api/tank', { preHandler: dash }, async () => Q.tankResults(pool));
   // apagar um resultado do tanque (todas as análises daquela data) — só o dono
   app.delete('/api/tank/:date', { preHandler: guard('apagar') }, async (req, reply) => {

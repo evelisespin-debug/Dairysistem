@@ -76,9 +76,9 @@ function shell(html, active) {
   if (can('relatorios')) items.push(['painel', '📊', 'Painel'], ['gestao', '📈', 'Gestão']);
   items.push(['animais', '🐄', 'Animais'], ['lancar', '➕', 'Lançar']);
   if (can('importar')) items.push(['importar', '📥', 'Importar']);
-  const reports = can('relatorios') ? [['controle', 'Controle leiteiro'], ['tanque', 'Tanque / laticínio']] : [];
+  const reports = can('relatorios') ? [['anual', 'Painel anual'], ['controle', 'Controle leiteiro'], ['tanque', 'Tanque / laticínio']] : [];
   const more = [];
-  if (can('config')) more.push(['config', 'Tipos de análise e limites']);
+  if (can('config')) more.push(['config', 'Tipos de análise e limites'], ['metas', 'Metas da fazenda']);
   if (can('usuarios')) more.push(['usuarios', 'Usuários']);
   if (can('auditoria')) more.push(['auditoria', 'Registro de alterações']);
   more.push(['senha', 'Trocar senha / PIN']);
@@ -392,7 +392,7 @@ function viewMais() {
   shell(`<h1>Mais</h1><div class="card list">
     <div class="item"><span><b>${esc(S.user.name)}</b><br><span class="muted small">${esc(S.user.email)} · ${ROLE[S.user.role]}</span></span></div>
     <a class="item" href="#/senha"><span>Trocar senha / PIN</span><span>›</span></a>
-    ${can('relatorios') ? '<a class="item" href="#/controle"><span>Controle leiteiro (por vaca)</span><span>›</span></a><a class="item" href="#/tanque"><span>Tanque / laticínio</span><span>›</span></a>' : ''}
+    ${can('relatorios') ? '<a class="item" href="#/anual"><span>Painel de gestão anual</span><span>›</span></a><a class="item" href="#/controle"><span>Controle leiteiro (por vaca)</span><span>›</span></a><a class="item" href="#/tanque"><span>Tanque / laticínio</span><span>›</span></a>' : ''}
     ${can('config') ? '<a class="item" href="#/config"><span>Tipos de análise e limites de alerta</span><span>›</span></a>' : ''}
     ${can('usuarios') ? '<a class="item" href="#/usuarios"><span>Usuários da fazenda</span><span>›</span></a>' : ''}
     ${can('auditoria') ? '<a class="item" href="#/auditoria"><span>Registro de alterações</span><span>›</span></a>' : ''}
@@ -426,6 +426,60 @@ async function viewConfig() {
   } catch (e) { $('main').innerHTML = err(e); }
 }
 
+
+// ---------------- metas ----------------
+const TARGET_FIELDS = [['pct_healthy', '% de vacas com CCS abaixo da meta (sadias)', '%'], ['pct_high', '% de vacas com CCS alta (prevalência)', '%'], ['high_early', '% com CCS alta até 45 dias em lactação', '%'],
+  ['high_late', '% com CCS alta após 45 dias em lactação', '%'], ['incidence', 'Incidência de novos casos', '%'], ['chronic', 'Vacas crônicas', '%'], ['cured', 'Vacas curadas', '%'],
+  ['clinical_mastitis', 'Mastite clínica', '%'], ['tank_ccs', 'CCS do tanque (objetivo)', 'mil cél/mL'], ['tank_cbt', 'CPP / CBT do tanque (objetivo)', 'mil UFC/mL']];
+async function viewMetas() {
+  if (!can('config')) return (location.hash = '#/mais');
+  shell('<div class="muted">Carregando…</div>', 'mais');
+  try {
+    const T = await api('/api/targets');
+    $('main').innerHTML = `<p><a href="#/mais">← Mais</a></p><h1>Metas da fazenda</h1><form id="f" class="card"><p class="small muted">As metas aparecem nos indicadores (verde quando a meta é cumprida) e como linha verde nos gráficos. Os valores iniciais são os do sistema DairyUp em uso; ajuste para a realidade da fazenda.</p>
+      <div class="grid">${TARGET_FIELDS.map(([k, l, u]) => `<div><label for="t_${k}">${esc(l)} <span class="muted small">${esc(u)}</span></label><input id="t_${k}" data-k="${k}" inputmode="decimal" value="${T[k] ?? ''}"></div>`).join('')}</div>
+      <div id="e"></div><div style="margin-top:14px"><button class="primary">Salvar metas</button></div></form>`;
+    $('#f').onsubmit = async (ev) => { ev.preventDefault(); const body = {}; document.querySelectorAll('[data-k]').forEach((i) => (body[i.dataset.k] = i.value.trim().replace(',', '.'))); try { await api('/api/targets', { method: 'PUT', body }); toast('Metas salvas.'); } catch (e) { $('#e').innerHTML = err(e); } };
+  } catch (e) { $('main').innerHTML = err(e); }
+}
+
+// ---------------- painel anual (mês a mês, com metas) ----------------
+async function viewAnual() {
+  if (!can('relatorios')) return (location.hash = '#/animais');
+  shell('<h1>Painel de gestão anual</h1><div class="muted">Carregando…</div>', 'anual');
+  try {
+    S.anual ||= {};
+    const probe = await api('/api/dashboard/management?controls=3');
+    if (probe.empty) { $('main').innerHTML = '<h1>Painel de gestão anual</h1><div class="msg info">Ainda não há controles enviados.</div>'; return; }
+    const years = []; for (let y = +probe.available_from.slice(0, 4); y <= +probe.available_to.slice(0, 4); y++) years.push(y);
+    const year = S.anual.year && years.includes(S.anual.year) ? S.anual.year : +probe.available_to.slice(0, 4);
+    const lot = sessionStorage.getItem('lot') || '';
+    const [m, tank] = await Promise.all([api(`/api/dashboard/management?group=mensal&from=${year}-01&to=${year}-12${lot ? '&lot=' + encodeURIComponent(lot) : ''}`), api('/api/tank')]);
+    const T = m.targets; const goal = nf(m.goal); const MES = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+    const byM = (fn) => MES.map((_, i) => { const k = `${year}-${String(i + 1).padStart(2, '0')}`; const r = m.series.find((x) => x.key === k); return r ? fn(r) : null; });
+    const tk = (code) => MES.map((_, i) => { const k = `${year}-${String(i + 1).padStart(2, '0')}`; const day = tank.find((r) => r.date.startsWith(k) && r.values[code] != null); return day ? day.values[code] : null; });
+    const row = (label, vals, o = {}) => ({ label, vals, dec: o.dec ?? 1, meta: o.meta, unit: o.unit || '', last: !!o.last, better: o.better });
+    const sections = [
+      ['DADOS GERAIS', [row('Média vaca/dia (kg)', byM((r) => r.milk_avg)), row('% Gordura (tanque)', tk('GORDURA'), { dec: 2 }), row('% Proteína (tanque)', tk('PROTEINA'), { dec: 2 }), row('NUL (mg/dL)', tk('UREIA'), { dec: 1 }), row('Produção total do tanque (L)', tk('PRODUCAO_TOTAL'), { dec: 0 })]],
+      ['SAÚDE DE ÚBERE', [row('CPP (mil UFC/mL)', tk('CBT'), { dec: 0, meta: T.tank_cbt, better: 'low' }), row('CCS Tanque (laboratório)', tk('CCS'), { dec: 0, last: true }), row('CCS Controle (tanque pelas vacas)', byM((r) => r.tank_calc), { dec: 0, meta: T.tank_ccs, last: true, better: 'low' }),
+        row(`% de vacas com CCS abaixo de ${goal}`, byM((r) => r.pct_healthy), { unit: '%', meta: T.pct_healthy, better: 'high' }), row(`% de vacas com CCS ${goal} ou mais`, byM((r) => r.pct_high), { unit: '%', meta: T.pct_high, better: 'low' }),
+        row('% com CCS alta até 45 DEL', byM((r) => r.high_early), { unit: '%', meta: T.high_early, better: 'low' }), row('% com CCS alta após 45 DEL', byM((r) => r.high_late), { unit: '%', meta: T.high_late, better: 'low' }),
+        row('Incidência de novos casos', byM((r) => r.incidence), { unit: '%', meta: T.incidence, better: 'low' }), row('Vacas crônicas', byM((r) => r.pct_cronica), { unit: '%', meta: T.chronic, better: 'low' }), row('Vacas curadas', byM((r) => r.pct_curada), { unit: '%', meta: T.cured, better: 'high' }),
+        row('Nº de casos de mastite clínica', MES.map(() => null), { dec: 0 }), row('Incidência de mastite clínica', MES.map(() => null), { unit: '%', meta: T.clinical_mastitis })]],
+      ['REPRODUTIVO', [row('DEL médio', byM((r) => r.del_mean), { dec: 0 }), row('% de vacas prenhes', MES.map(() => null)), row('Taxa de concepção geral', MES.map(() => null))]],
+    ];
+    const cell = (v, r) => (v == null ? '<span class="muted">–</span>' : `${nf(v, r.dec)}${r.unit}`);
+    const mean = (r) => { const v = r.vals.filter((x) => x != null); if (!v.length) return null; return r.last ? v[v.length - 1] : v.reduce((a, b) => a + b, 0) / v.length; };
+    $('main').innerHTML = `<h1>Painel de gestão anual</h1>
+      <div class="row" style="margin-bottom:10px"><div><label for="yr" class="sr">Ano</label><select id="yr">${years.map((y) => `<option ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select></div></div>
+      <div class="card"><div class="scroll"><table class="annual"><tr><th style="text-align:left">Indicador</th>${MES.map((x) => `<th class="n">${x}</th>`).join('')}<th class="n">Média</th><th class="n">Meta</th></tr>
+        ${sections.map(([title, rows]) => `<tr class="sec"><td colspan="15">${title}</td></tr>${rows.map((r) => { const mv = mean(r); const good = r.meta != null && mv != null ? (r.better === 'high' ? mv >= r.meta : mv <= r.meta) : null; return `<tr><td>${esc(r.label)}</td>${r.vals.map((v) => `<td class="n">${cell(v, r)}</td>`).join('')}<td class="n"><b style="${good === false ? 'color:var(--bad)' : good ? 'color:var(--ok)' : ''}">${cell(mv, r)}</b>${r.last && mv != null ? '<div class="small muted">último</div>' : ''}</td><td class="n">${r.meta == null ? '<span class="muted">–</span>' : nf(r.meta, 0) + r.unit}</td></tr>`; }).join('')}`).join('')}
+      </table></div>
+      <p class="small muted">A CCS nunca é média: na coluna "Média", as linhas de CCS mostram o valor do último mês. Linhas com "–" dependem de módulos ainda não implantados (mastite clínica, reprodutivo). As metas são editáveis em <a href="#/metas">Metas</a>.</p></div>`;
+    $('#yr').onchange = (e) => { S.anual.year = +e.target.value; viewAnual(); };
+  } catch (e) { $('main').innerHTML = err(e); }
+}
+
 async function viewUsuarios() {
   if (!can('usuarios')) return (location.hash = '#/mais');
   shell('<div class="muted">Carregando…</div>', 'mais');
@@ -456,89 +510,119 @@ async function viewAuditoria() {
 
 // ---------------- dashboard de gestão da qualidade do leite ----------------
 const mlab = (d) => monthLabel(d.slice(0, 7));
+const plabel = (k) => (/^\d{4}-\d{2}$/.test(k) ? monthLabel(k) : /-T\d$/.test(k) ? `${k.slice(5)}/${k.slice(2, 4)}` : /-S\d$/.test(k) ? `${k.slice(5)}/${k.slice(2, 4)}` : k);
 const ptn = (v, d = 1) => (v == null ? '—' : nf(v, d) + '%');
 const arrow = (cur, prev, worseUp = true, unit = 'pp') => {
   if (cur == null || prev == null) return '';
-  const diff = cur - prev; if (Math.abs(diff) < 0.05) return '<div class="d muted">= igual ao controle anterior</div>';
+  const diff = cur - prev; if (Math.abs(diff) < 0.05) return '<div class="d muted">= igual ao período anterior</div>';
   const bad = worseUp ? diff > 0 : diff < 0;
-  return `<div class="d" style="color:var(--${bad ? 'bad' : 'ok'})">${diff > 0 ? '▲' : '▼'} ${nf(Math.abs(diff), 1)} ${unit} vs. controle anterior</div>`;
+  return `<div class="d" style="color:var(--${bad ? 'bad' : 'ok'})">${diff > 0 ? '▲' : '▼'} ${nf(Math.abs(diff), 1)} ${unit} vs. anterior</div>`;
 };
+// escreve o valor em cima de cada barra/ponto, como nos gráficos do sistema atual
+const valueLabels = { id: 'valueLabels', afterDatasetsDraw(c) {
+  const ctx = c.ctx; ctx.save(); ctx.font = '600 10px system-ui, sans-serif'; ctx.fillStyle = css('--ink'); ctx.textAlign = 'center';
+  c.data.datasets.forEach((ds, i) => { if (!ds.showValues) return; c.getDatasetMeta(i).data.forEach((el, j) => { const v = ds.data[j]; if (v == null) return; ctx.fillText(ds.labelFmt ? ds.labelFmt(v) : nf(v, 0), el.x, el.y - 5); }); });
+  ctx.restore(); } };
+const monthInput = (v) => (v ? v.slice(0, 7) : '');
 async function viewGestao() {
   if (!can('relatorios')) return (location.hash = '#/animais');
   shell('<h1>Gestão da qualidade do leite</h1><div class="muted">Calculando indicadores…</div>', 'gestao');
-  S.gest ||= { controls: 12 };
+  S.gest ||= { group: 'mensal', filter: 'todas', from: '', to: '' };
   const draw = async () => {
     try {
       killCharts();
       const lot = sessionStorage.getItem('lot') || '';
-      const [m, lots] = await Promise.all([api(`/api/dashboard/management?controls=${S.gest.controls}${lot ? '&lot=' + encodeURIComponent(lot) : ''}`), api('/api/dashboard/lots')]);
-      if (m.empty || !m.series.length) { $('main').innerHTML = '<h1>Gestão da qualidade do leite</h1><div class="msg info">Ainda não há controles enviados. Importe os relatórios do controle leiteiro em <b>Importar</b>.</div>'; return; }
-      const L = m.last; const P = m.prev; const goal = nf(m.goal); const first = m.series[0];
-      const tile = (l, v, sub, delta) => `<div class="tile"><div class="tl">${l}</div><div class="tv">${v}</div>${sub ? `<div class="ts">${sub}</div>` : ''}${delta || ''}</div>`;
+      const q = new URLSearchParams({ group: S.gest.group, filter: S.gest.filter });
+      if (S.gest.from) q.set('from', S.gest.from); if (S.gest.to) q.set('to', S.gest.to); if (!S.gest.from && !S.gest.to) q.set('controls', 12); if (lot) q.set('lot', lot);
+      const [m, lots, tankTrend] = await Promise.all([api(`/api/dashboard/management?${q}`), api('/api/dashboard/lots'), api('/api/dashboard/trend?scope=tank&months=36')]);
+      if (m.empty || !m.series.length) { $('main').innerHTML = `<h1>Gestão da qualidade do leite</h1>${m.controls_available ? `<div class="msg info">Nenhum controle nesse período. Há controles de ${esc(m.available_from)} a ${esc(m.available_to)}.</div>` : '<div class="msg info">Ainda não há controles enviados. Importe os relatórios do controle leiteiro em <b>Importar</b>.</div>'}`; return; }
+      if (!S.gest.from) { S.gest.from = m.dates[0].slice(0, 7); S.gest.to = m.latest.slice(0, 7); }
+      const L = m.last; const P = m.prev; const goal = nf(m.goal); const T = m.targets; const first = m.series[0];
+      const ok = (v, meta, higherBetter) => (v == null || meta == null ? '' : (higherBetter ? v >= meta : v <= meta) ? 'ok' : 'bad');
+      const tile = (l, v, sub, delta, meta, cls) => `<div class="tile"><div class="tl">${l}</div><div class="tv ${cls || ''}">${v}</div>${sub ? `<div class="ts">${sub}</div>` : ''}${meta != null ? `<div class="tm">Meta ${meta}</div>` : ''}${delta || ''}</div>`;
+      const per = m.series.length > 1 && P ? 'período' : 'controle';
       const bullets = [];
-      bullets.push(`<b>${ptn(L.pct_high)}</b> das vacas testadas (${nf(L.high)} de ${nf(L.tested)}) estão com CCS de ${goal} mil ou mais${first !== L ? `; no primeiro controle exibido (${mlab(first.date)}) eram ${ptn(first.pct_high)}` : ''}.`);
-      bullets.push(`Todo mês, em média, <b>${ptn(m.avg.incidence)}</b> das vacas que estavam abaixo de ${goal} mil passam a ter CCS alta, e só <b>${ptn(m.avg.cure_rate)}</b> das que estavam altas voltam para baixo no controle seguinte.`);
-      if (L.del_early && L.del_late) bullets.push(`Logo após o parto (até 45 dias em lactação), <b>${ptn(L.del_early.pct)}</b> das vacas já vêm com CCS alta, contra ${ptn(L.del_late.pct)} depois disso${L.del_early.pct - L.del_late.pct >= 3 ? ': sinal de infecção que vem da secagem ou do pré-parto' : ''}.`);
+      bullets.push(`<b>${ptn(L.pct_high)}</b> das vacas testadas (${nf(L.high)} de ${nf(L.tested)}) estão com CCS de ${goal} mil ou mais${first !== L ? `; no primeiro ${per} exibido eram ${ptn(first.pct_high)}` : ''}.`);
+      bullets.push(`Todo mês, em média, <b>${ptn(m.avg.incidence)}</b> das vacas testadas são novas infecções (estavam abaixo de ${goal} mil e passaram a ${goal} mil ou mais) e <b>${ptn(m.avg.cure_rate)}</b> das vacas que estavam altas voltam para baixo.`);
+      if (L.early_n) bullets.push(`Vacas com até 45 dias em lactação e CCS alta são <b>${ptn(L.high_early)}</b> do rebanho testado; depois de 45 dias, <b>${ptn(L.high_late)}</b>. Meta: ${T.high_early}% e ${T.high_late}%.`);
       if (m.loss) bullets.push(`Vacas com CCS alta produzem <b>${nf(m.loss.diff, 1)} kg/dia a menos</b> (${nf(m.loss.avg_high, 1)} contra ${nf(m.loss.avg_low, 1)} kg): cerca de ${nf(m.loss.kg_day)} kg de leite por dia (${ptn(m.loss.share_of_milk)} da produção). É uma diferença observada, não uma prova de causa.`);
       if (m.impact.cows) bullets.push(`<b>${nf(m.impact.half_n)} vacas (${nf(m.impact.half_pct, 0)}%)</b> respondem por metade da CCS do tanque; as ${nf(m.impact.top10pct_n)} piores (10%) respondem por ${ptn(m.impact.top10pct_share, 0)}.`);
-      if (m.recurrent_total) bullets.push(`<b>${nf(m.recurrent_total)} vacas</b> estão com CCS alta há 3 controles seguidos ou mais: são as candidatas a exame, tratamento ou descarte.`);
+      if (m.recurrent_total) bullets.push(`<b>${nf(m.recurrent_total)} vacas</b> estão com CCS alta há 3 controles seguidos ou mais: candidatas a exame, tratamento ou descarte.`);
+      const seg = (id, opts, cur) => `<div class="tabs" id="${id}">${opts.map(([v, l]) => `<button type="button" data-v="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
       $('main').innerHTML = `<h1>Gestão da qualidade do leite</h1>
-        <p class="muted" style="margin:-6px 0 10px">Último controle enviado: <b>${fdate(m.latest)}</b> · ${m.dates.length} controles exibidos · meta: CCS abaixo de ${goal} mil cél/mL</p>
-        <div class="row" style="margin-bottom:12px"><div><label for="lot" class="sr">Lote</label><select id="lot"><option value="">Todo o rebanho</option>${lots.map((l) => `<option ${l.lot === lot ? 'selected' : ''} value="${esc(l.lot)}">Lote ${esc(l.lot)} (${l.n})</option>`).join('')}</select></div>
-          <div><label for="per" class="sr">Período</label><select id="per">${[6, 12, 24].map((n) => `<option value="${n}" ${S.gest.controls === n ? 'selected' : ''}>Últimos ${n} controles</option>`).join('')}</select></div></div>
+        <p class="muted" style="margin:-6px 0 10px">Último controle enviado: <b>${fdate(m.latest)}</b> · ${m.dates.length} controle(s) exibido(s) · sadia = CCS abaixo de ${goal} mil</p>
+        <div class="filter-panel"><div class="row">
+          <div><label for="fr">De</label><input id="fr" type="month" value="${esc(S.gest.from)}" min="${esc(m.available_from)}" max="${esc(m.available_to)}"></div>
+          <div><label for="to">Até</label><input id="to" type="month" value="${esc(S.gest.to)}" min="${esc(m.available_from)}" max="${esc(m.available_to)}"></div>
+          <div><label for="lot">Lote</label><select id="lot"><option value="">Todo o rebanho</option>${lots.map((l) => `<option ${l.lot === lot ? 'selected' : ''} value="${esc(l.lot)}">Lote ${esc(l.lot)} (${l.n})</option>`).join('')}</select></div></div>
+          <div class="row" style="margin-top:8px"><div><div class="muted small" style="color:#cfe3e8">Grupo</div>${seg('flt', [['todas', 'Todas'], ['paridas', 'Paridas (até 45 DEL)'], ['primiparas', 'Primíparas']], S.gest.filter)}</div>
+          <div><div class="muted small" style="color:#cfe3e8">Período</div>${seg('grp', [['mensal', 'Mensal'], ['trimestral', 'Trimestral'], ['semestral', 'Semestral'], ['anual', 'Anual']], S.gest.group)}</div></div></div>
         <div class="kpi-panel"><div class="tiles">
-          ${tile('Vacas sadias', ptn(L.pct_healthy), `abaixo de ${goal} mil · ${nf(L.healthy)} vacas`, arrow(L.pct_healthy, P?.pct_healthy, false))}
-          ${tile('Prevalência de CCS alta', ptn(L.pct_high), `${goal} mil ou mais · ${nf(L.high)} vacas`, arrow(L.pct_high, P?.pct_high))}
-          ${tile(`CCS acima de ${nf(m.severe)} mil`, ptn(L.pct_high400), `${nf(L.high400)} vacas`, arrow(L.pct_high400, P?.pct_high400))}
-          ${tile('Novas infecções no mês', ptn(L.incidence), `${nf(L.nova)} vacas`, arrow(L.incidence, P?.incidence))}
-          ${tile('Taxa de cura', ptn(L.cure_rate), `${nf(L.curada)} vacas voltaram para abaixo de ${goal} mil`, arrow(L.cure_rate, P?.cure_rate, false))}
-          ${tile('Vacas crônicas', nf(L.cronica), 'CCS alta em 2 controles seguidos', arrow(L.cronica, P?.cronica, true, 'vacas'))}
-          ${tile('CCS alta até 45 DEL', L.del_early ? ptn(L.del_early.pct) : '—', L.del_early ? `${nf(L.del_early.high)} de ${nf(L.del_early.n)} vacas` : 'sem parto informado', arrow(L.del_early?.pct, P?.del_early?.pct))}
-          ${tile('Menos leite por vaca com CCS alta', m.loss ? `${nf(m.loss.diff, 1)} kg` : '—', m.loss ? `${ptn(m.loss.pct)} por dia` : '', '')}
-          ${tile('Leite a menos por dia', m.loss ? `${nf(m.loss.kg_day)} kg` : '—', m.loss ? `${ptn(m.loss.share_of_milk)} da produção` : '', '')}
-          ${tile('CCS do tanque (pelas vacas)', L.tank_calc == null ? '—' : nf(L.tank_calc), L.tank_lab != null ? `laboratório: ${nf(L.tank_lab)} mil` : 'mil cél/mL', arrow(L.tank_calc, P?.tank_calc))}
+          ${tile('% de vacas com CCS abaixo de ' + goal, ptn(L.pct_healthy, 0), `${nf(L.healthy)} vacas`, arrow(L.pct_healthy, P?.pct_healthy, false), T.pct_healthy + '%', ok(L.pct_healthy, T.pct_healthy, true))}
+          ${tile('% de vacas com CCS de ' + goal + ' ou mais', ptn(L.pct_high, 0), `${nf(L.high)} vacas`, arrow(L.pct_high, P?.pct_high), T.pct_high + '%', ok(L.pct_high, T.pct_high, false))}
+          ${tile('% com CCS alta até 45 dias', ptn(L.high_early, 0), `${nf(L.high_early_n)} vacas`, arrow(L.high_early, P?.high_early), T.high_early + '%', ok(L.high_early, T.high_early, false))}
+          ${tile('% com CCS alta após 45 dias', ptn(L.high_late, 0), `${nf(L.high_late_n)} vacas`, arrow(L.high_late, P?.high_late), T.high_late + '%', ok(L.high_late, T.high_late, false))}
+          ${tile('Incidência de novos casos', ptn(L.incidence, 0), `${nf(L.nova)} vacas`, arrow(L.incidence, P?.incidence), T.incidence + '%', ok(L.incidence, T.incidence, false))}
+          ${tile('Vacas crônicas', ptn(L.pct_cronica, 0), `${nf(L.cronica)} vacas`, arrow(L.pct_cronica, P?.pct_cronica), T.chronic + '%', ok(L.pct_cronica, T.chronic, false))}
+          ${tile('Vacas curadas', ptn(L.pct_curada, 0), `${nf(L.curada)} vacas`, arrow(L.pct_curada, P?.pct_curada, false), T.cured + '%', ok(L.pct_curada, T.cured, true))}
+          ${tile(`CCS acima de ${nf(m.severe)} mil`, ptn(L.pct_high400, 0), `${nf(L.high400)} vacas`, arrow(L.pct_high400, P?.pct_high400))}
+          ${tile('Litros a mais em vacas com CCS abaixo de ' + goal, L.milk_diff == null ? '—' : `${nf(L.milk_diff, 1)} L`, L.milk_low != null ? `${nf(L.milk_low, 1)} contra ${nf(L.milk_high, 1)} L por vaca` : '', '')}
+          ${tile('CCS do tanque (controle)', L.tank_calc == null ? '—' : nf(L.tank_calc), L.tank_lab != null ? `laboratório: ${nf(L.tank_lab)} mil` : 'mil cél/mL', arrow(L.tank_calc, P?.tank_calc), T.tank_ccs, ok(L.tank_calc, T.tank_ccs, false))}
         </div></div>
-        <div class="card"><h2>Leitura deste controle</h2><ul class="reading">${bullets.map((b) => `<li>${b}</li>`).join('')}</ul>
-          <p class="small muted">Situação da vaca pelos dois últimos testes (até 2 controles para trás, para tolerar controle pulado). Nova infecção: estava abaixo de ${goal} mil e passou a ${goal} mil ou mais. Crônica: ${goal} mil ou mais nos dois. Cura: estava alta e voltou para abaixo.</p></div>
+        <div class="card"><h2>Leitura deste ${per}</h2><ul class="reading">${bullets.map((b) => `<li>${b}</li>`).join('')}</ul>
+          <p class="small muted">Situação da vaca: a CCS de cada controle contra a última medição anterior dela. Nova infecção: estava abaixo de ${goal} mil e passou a ${goal} mil ou mais. Crônica: ${goal} mil ou mais nas duas. Curada: estava alta e voltou para baixo. Os percentuais usam como divisor todas as vacas testadas. Nos períodos trimestral, semestral e anual, as contagens são somadas e a CCS é a do último controle (sem média).</p></div>
         <div class="grid two">
-          <div class="card"><h2>Perfil de CCS</h2><div class="chart"><canvas id="g1"></canvas></div><p class="small muted">CCS do tanque em cada controle (laboratório e calculada pelas vacas: CCS × leite ÷ leite) e meta. Sem médias de CCS.</p></div>
-          <div class="card"><h2>% de vacas por situação</h2><div class="chart"><canvas id="g2"></canvas></div><p class="small muted">Sobre as vacas com teste anterior.</p></div>
-          <div class="card"><h2>Prevalência de CCS alta</h2><div class="chart"><canvas id="g3"></canvas></div><p class="small muted">% de vacas testadas com CCS de ${goal} mil ou mais, e de ${nf(m.severe)} mil ou mais.</p></div>
-          <div class="card"><h2>Incidência de novos casos e taxa de cura</h2><div class="chart"><canvas id="g4"></canvas></div><p class="small muted">Incidência: % das vacas sadias que passaram a ter CCS alta. Cura: % das vacas altas que voltaram para baixo.</p></div>
-          <div class="card"><h2>CCS alta até 45 DEL x depois</h2><div class="chart"><canvas id="g5"></canvas></div><p class="small muted">Vacas que já começam a lactação com CCS alta indicam problema na secagem ou no pré-parto. DEL conhecido em ${nf(m.del_coverage, 0)}% dos testes.</p></div>
-          <div class="card"><h2>Produção média por situação da CCS</h2><div class="chart"><canvas id="g6"></canvas></div><p class="small muted">Kg de leite por vaca no dia do controle.</p></div>
-          <div class="card"><h2>Vacas com maior impacto no tanque</h2><div class="chart"><canvas id="g7"></canvas></div><p class="small muted">Parte de cada vaca na CCS do tanque: CCS × leite ÷ soma de (CCS × leite) do rebanho.</p></div>
-          <div class="card"><h2>Fase da lactação em que as vacas se infectam</h2><div class="chart"><canvas id="g8"></canvas></div><p class="small muted">Nos ${m.dates.length} controles: incidência de novos casos e prevalência por faixa de dias em lactação.</p></div>
-          <div class="card"><h2>Prevalência por ordem de lactação</h2><div class="chart"><canvas id="g9"></canvas></div><p class="small muted">Último controle; barras com o nº de vacas testadas.</p></div>
+          <div class="card"><h2>Perfil de CCS</h2><div class="chart"><canvas id="g1"></canvas></div><p class="small muted">CCS Controle = tanque calculado pelas vacas (CCS × leite ÷ leite). CCS Tanque = resultado do laboratório. Vale o último controle de cada período.</p></div>
+          <div class="card" id="cpp-card"><h2>Perfil de CPP</h2><div class="chart"><canvas id="g2"></canvas></div><p class="small muted">Contagem bacteriana do tanque (mil UFC/mL), do Tanque / laticínio.</p></div>
+          <div class="card"><h2>Produção de vacas com CCS acima x abaixo de ${goal}</h2><div class="chart"><canvas id="g3"></canvas></div><p class="small muted">Kg de leite por vaca no controle; as barras são a diferença.</p></div>
+          <div class="card"><h2>Vacas com maior impacto no tanque</h2><div class="chart"><canvas id="g4"></canvas></div><p class="small muted">Parte de cada vaca na CCS do tanque: CCS × leite ÷ soma de (CCS × leite) do rebanho, no último controle.</p></div>
+          <div class="card"><h2>% de vacas se contaminando por período de lactação</h2><div class="chart"><canvas id="g5"></canvas></div><p class="small muted">Barras: como as novas infecções se distribuem nas fases da lactação. Linha: % das vacas sadias da fase que se infectaram. DEL conhecido em ${nf(m.del_coverage, 0)}% dos testes.</p></div>
+          <div class="card"><h2>% de vacas por status (média no período)</h2><div class="chart"><canvas id="g6"></canvas></div><p class="small muted">Sobre as vacas com teste anterior.</p></div>
+          <div class="card"><h2>Prevalência de vacas sadias</h2><div class="chart"><canvas id="g7"></canvas></div></div>
+          <div class="card"><h2>Incidência de novos casos</h2><div class="chart"><canvas id="g8"></canvas></div></div>
+          <div class="card"><h2>Prevalência de vacas curadas</h2><div class="chart"><canvas id="g9"></canvas></div></div>
+          <div class="card"><h2>Prevalência CCS ${goal} mil ou mais até 45 DEL</h2><div class="chart"><canvas id="g10"></canvas></div></div>
+          <div class="card"><h2>Prevalência CCS ${goal} mil ou mais após 45 DEL</h2><div class="chart"><canvas id="g11"></canvas></div></div>
+          <div class="card"><h2>Prevalência CCS ${goal} mil ou mais</h2><div class="chart"><canvas id="g12"></canvas></div></div>
+          <div class="card"><h2>Prevalência de vacas crônicas</h2><div class="chart"><canvas id="g13"></canvas></div></div>
+          <div class="card"><h2>Prevalência por ordem de lactação</h2><div class="chart"><canvas id="g14"></canvas></div><p class="small muted">Último controle; entre parênteses, o nº de vacas testadas.</p></div>
         </div>
         <div class="card"><h2>Vacas recorrentes (${nf(m.recurrent_total)})</h2>${m.recurrent.length ? `<div class="scroll"><table><tr><th>Brinco</th><th>Lote</th><th>LAC</th><th>DEL</th><th>Controles ≥ ${goal}</th>${m.dates.slice(-6).map((d) => `<th class="n">${mlab(d)}</th>`).join('')}<th class="n">Leite</th></tr>
           ${m.recurrent.map((r) => `<tr><td><a href="#/animal/${r.id}">${esc(r.tag)}</a></td><td>${esc(r.lot || '')}</td><td>${r.lac ?? '—'}</td><td>${r.del ?? '—'}</td><td>${r.consecutive} seguidos (${r.high_of})</td>${r.values.map((v) => `<td class="n" style="${v != null && v >= m.goal ? 'color:var(--bad);font-weight:600' : ''}">${v == null ? '' : nf(v)}</td>`).join('')}<td class="n">${r.milk == null ? '—' : nf(r.milk, 1) + ' kg'}</td></tr>`).join('')}</table></div>
           <p class="small muted">CCS alta em 3 controles seguidos ou mais (ou 4 dos últimos 6). Mostrando ${m.recurrent.length} de ${nf(m.recurrent_total)}.</p>` : '<p class="muted">Nenhuma vaca recorrente. 👍</p>'}</div>`;
+      const reload = () => { S.gest.from = $('#fr').value; S.gest.to = $('#to').value; draw(); };
+      $('#fr').onchange = reload; $('#to').onchange = reload;
       $('#lot').onchange = (e) => { sessionStorage.setItem('lot', e.target.value); draw(); };
-      $('#per').onchange = (e) => { S.gest.controls = +e.target.value; draw(); };
+      $('#grp').onclick = (e) => { const v = e.target.dataset.v; if (v) { S.gest.group = v; draw(); } };
+      $('#flt').onclick = (e) => { const v = e.target.dataset.v; if (v) { S.gest.filter = v; draw(); } };
 
-      const x = m.series.map((r) => mlab(r.date)); const dl = (label, data, color, extra = {}) => ({ label, data, borderColor: css(color), backgroundColor: css(color), tension: 0.25, spanGaps: true, pointRadius: 3, ...extra });
+      const x = m.series.map((r) => plabel(r.key));
+      const dl = (label, data, color, extra = {}) => ({ label, data, borderColor: css(color), backgroundColor: css(color), tension: 0.25, spanGaps: true, pointRadius: 3, showValues: true, ...extra });
       const legend = { plugins: { legend: { position: 'bottom', labels: { boxWidth: 14 } } } };
-      const goalLine = { label: `Meta (${goal} mil)`, data: x.map(() => m.goal), borderColor: css('--warn'), borderDash: [6, 4], pointRadius: 0, borderWidth: 1.5 };
-      chart($('#g1'), { type: 'line', data: { labels: x, datasets: [dl('Tanque (laboratório)', m.series.map((r) => r.tank_lab), '--c2'), dl('Tanque calculado pelas vacas', m.series.map((r) => r.tank_calc), '--c1', { borderDash: [6, 4] }), goalLine] }, options: { ...legend, scales: { y: { beginAtZero: true, title: { display: true, text: 'mil cél/mL' } } } } });
-      const bar = (label, key, color) => ({ label, data: m.series.map((r) => r[key]), backgroundColor: css(color), stack: 's' });
-      chart($('#g2'), { type: 'bar', data: { labels: x, datasets: [bar('Sadias', 'pct_sadia', '--c1'), bar('Curadas', 'pct_curada', '--c2'), bar('Nova infecção', 'pct_nova', '--warn'), bar('Crônicas', 'pct_cronica', '--bad')] }, options: { ...legend, scales: { x: { stacked: true }, y: { stacked: true, max: 100, title: { display: true, text: '% das vacas' } } } } });
-      chart($('#g3'), { type: 'line', data: { labels: x, datasets: [dl(`${goal} mil ou mais`, m.series.map((r) => r.pct_high), '--warn'), dl(`${nf(m.severe)} mil ou mais`, m.series.map((r) => r.pct_high400), '--bad')] }, options: { ...legend, scales: { y: { beginAtZero: true, title: { display: true, text: '% das vacas' } } } } });
-      chart($('#g4'), { type: 'line', data: { labels: x, datasets: [dl('Incidência de novos casos', m.series.map((r) => r.incidence), '--bad'), dl('Taxa de cura', m.series.map((r) => r.cure_rate), '--c1')] }, options: { ...legend, scales: { y: { beginAtZero: true, title: { display: true, text: '%' } } } } });
-      chart($('#g5'), { type: 'line', data: { labels: x, datasets: [dl('Até 45 DEL', m.series.map((r) => r.del_early?.pct ?? null), '--bad'), dl('Depois de 45 DEL', m.series.map((r) => r.del_late?.pct ?? null), '--c2')] }, options: { ...legend, scales: { y: { beginAtZero: true, title: { display: true, text: '% com CCS alta' } } } } });
-      chart($('#g6'), { type: 'line', data: { labels: x, datasets: [dl(`CCS abaixo de ${goal} mil`, m.series.map((r) => r.milk_low), '--c1'), dl(`CCS ${goal} mil ou mais`, m.series.map((r) => r.milk_high), '--bad')] }, options: { ...legend, scales: { y: { title: { display: true, text: 'kg/vaca' } } } } });
-      chart($('#g7'), { type: 'bar', data: { labels: m.impact.top.map((r) => r.tag), datasets: [{ label: '% da CCS do tanque', data: m.impact.top.map((r) => r.impact), backgroundColor: css('--c2') }] }, options: { indexAxis: 'y', plugins: { legend: { display: false }, tooltip: { callbacks: { afterLabel: (c) => { const r = m.impact.top[c.dataIndex]; return `CCS ${nf(r.ccs)} mil · ${nf(r.milk, 1)} kg`; } } } }, scales: { x: { title: { display: true, text: '% da CCS do tanque' } } } } });
-      chart($('#g8'), { data: { labels: m.bands.map((b) => b.label), datasets: [{ type: 'bar', label: 'Incidência de novos casos (%)', data: m.bands.map((b) => b.incidence), backgroundColor: css('--bad') }, { type: 'line', label: 'Prevalência (%)', data: m.bands.map((b) => b.prevalence), borderColor: css('--c2'), backgroundColor: css('--c2'), tension: 0.25 }] }, options: { ...legend, scales: { y: { beginAtZero: true, title: { display: true, text: '%' } } } } });
-      chart($('#g9'), { data: { labels: m.lactation.map((g) => `${g.label} (${g.n})`), datasets: [{ type: 'bar', label: `% com CCS de ${goal} mil ou mais`, data: m.lactation.map((g) => g.pct), backgroundColor: css('--warn') }] }, options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: '% das vacas' } } } } });
+      const metaLine = (v, label) => (v == null ? null : { type: 'line', label: label || 'Meta', data: x.map(() => v), borderColor: css('--c1'), backgroundColor: css('--c1'), pointRadius: 0, borderWidth: 2, order: 0 });
+      chart($('#g1'), { type: 'line', plugins: [valueLabels], data: { labels: x, datasets: [dl('CCS Controle', m.series.map((r) => r.tank_calc), '--c2'), dl('CCS Tanque', m.series.map((r) => r.tank_lab), '--muted', { borderDash: [] }), metaLine(T.tank_ccs, `Objetivo (${T.tank_ccs} mil)`)].filter(Boolean) }, options: { ...legend, scales: { y: { beginAtZero: true, title: { display: true, text: 'mil cél/mL' } } } } });
+      const cpp = tankTrend.filter((r) => r.code === 'CBT').sort((a, b) => (a.month < b.month ? -1 : 1));
+      if (cpp.length) chart($('#g2'), { type: 'line', plugins: [valueLabels], data: { labels: cpp.map((r) => monthLabel(r.month)), datasets: [dl('CPP', cpp.map((r) => r.value), '--c2'), { type: 'line', label: `Objetivo (${T.tank_cbt})`, data: cpp.map(() => T.tank_cbt), borderColor: css('--c1'), pointRadius: 0, borderWidth: 2 }] }, options: { ...legend, scales: { y: { beginAtZero: true, title: { display: true, text: 'mil UFC/mL' } } } } });
+      else $('#cpp-card .chart').outerHTML = '<p class="muted">Ainda não há resultados de CPP (CBT) do tanque. Lance em <a href="#/tanque">Tanque / laticínio</a> ou importe o mapa do leite.</p>';
+      chart($('#g3'), { type: 'bar', plugins: [valueLabels], data: { labels: x, datasets: [{ type: 'bar', label: 'Diferença de produção', data: m.series.map((r) => r.milk_diff), backgroundColor: css('--line'), order: 3, showValues: true, labelFmt: (v) => nf(v, 1) + ' L' }, dl(`CCS < ${goal}`, m.series.map((r) => r.milk_low), '--c2', { type: 'line', order: 1 }), dl(`CCS ≥ ${goal}`, m.series.map((r) => r.milk_high), '--bad', { type: 'line', order: 2 })] }, options: { ...legend, scales: { y: { title: { display: true, text: 'kg/vaca' } } } } });
+      chart($('#g4'), { type: 'bar', data: { labels: m.impact.top.map((r) => r.tag), datasets: [{ label: '% da CCS do tanque', data: m.impact.top.map((r) => r.impact), backgroundColor: css('--c2') }] }, options: { indexAxis: 'y', plugins: { legend: { display: false }, tooltip: { callbacks: { afterLabel: (c) => { const r = m.impact.top[c.dataIndex]; return `CCS ${nf(r.ccs)} mil · ${nf(r.milk, 1)} kg`; } } } }, scales: { x: { title: { display: true, text: '% da CCS do tanque' } } } } });
+      chart($('#g5'), { data: { labels: m.bands.map((b) => b.label), datasets: [{ type: 'bar', label: '% das novas infecções', data: m.bands.map((b) => b.share_new), backgroundColor: css('--c2'), showValues: true, labelFmt: (v) => nf(v, 0) + '%' }, { type: 'line', label: 'Incidência na fase (% das sadias)', data: m.bands.map((b) => b.incidence_rate), borderColor: css('--bad'), backgroundColor: css('--bad'), tension: 0.25 }] }, plugins: [valueLabels], options: { ...legend, scales: { y: { beginAtZero: true, title: { display: true, text: '%' } } } } });
+      if (m.pie) chart($('#g6'), { type: 'pie', data: { labels: ['Sadias', 'Curadas', 'Nova infecção', 'Crônicas'], datasets: [{ data: [m.pie.sadia, m.pie.curada, m.pie.nova, m.pie.cronica], backgroundColor: [css('--c1'), css('--c2'), css('--warn'), css('--bad')] }] }, options: { plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: (c) => `${c.label}: ${nf(c.parsed, 1)}%` } } } } });
+      const barMeta = (id, key, meta, label, color = '--c2') => chart($(id), { type: 'bar', plugins: [valueLabels], data: { labels: x, datasets: [{ type: 'bar', label, data: m.series.map((r) => r[key]), backgroundColor: css(color), order: 2, showValues: true, labelFmt: (v) => nf(v, 0) + '%' }, metaLine(meta)].filter(Boolean) }, options: { ...legend, scales: { y: { beginAtZero: true, title: { display: true, text: '%' } } } } });
+      barMeta('#g7', 'pct_sadia', T.pct_healthy, 'Sadias'); barMeta('#g8', 'incidence', T.incidence, 'Novos casos', '--bad'); barMeta('#g9', 'pct_curada', T.cured, 'Curadas');
+      barMeta('#g10', 'high_early', T.high_early, 'Até 45 DEL', '--warn'); barMeta('#g11', 'high_late', T.high_late, 'Após 45 DEL', '--warn'); barMeta('#g12', 'pct_high', T.pct_high, `CCS ≥ ${goal} mil`, '--warn'); barMeta('#g13', 'pct_cronica', T.chronic, 'Crônicas', '--bad');
+      chart($('#g14'), { type: 'bar', plugins: [valueLabels], data: { labels: m.lactation.map((g) => `${g.label} (${g.n})`), datasets: [{ label: `% com CCS de ${goal} mil ou mais`, data: m.lactation.map((g) => g.pct), backgroundColor: css('--warn'), showValues: true, labelFmt: (v) => nf(v, 0) + '%' }] }, options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: '% das vacas' } } } } });
     } catch (e) { $('main').innerHTML = err(e); }
   };
   draw();
 }
 
 // ---------------- controle leiteiro (por vaca) ----------------
-const QSTATUS = { sadia: ['ok', 'Sadia'], curada: ['ok', 'Curada'], nova: ['atencao', 'Nova infecção'], cronica: ['alerta', 'Crônica'], acima: ['atencao', 'Acima da meta'], sem_historico: ['', 'Sem histórico'] };
-const GROUPS = [['todas', 'Todas'], ['lactantes', 'Lactantes'], ['paridas', 'Paridas'], ['primiparas', 'Primíparas'], ['novilhas', 'Novilhas']];
-const STATUSES = [['todas', 'Todas'], ['sadias', 'Sadias'], ['curadas', 'Curadas'], ['nova', 'Nova infecção'], ['cronicas', 'Crônicas'], ['acima200', 'Acima da meta']];
+const QSTATUS = { sadia: ['ok', 'Sadia'], curada: ['curada', 'Curada'], nova: ['atencao', 'Nova infecção'], cronica: ['alerta', 'Crônica'], acima: ['atencao', 'Acima da meta'], sem_historico: ['', 'Sem histórico'] };
+const PARIDA = { sadia: 'Parida sadia', curada: 'Parida curada', nova: 'Parida infectada', cronica: 'Parida crônica', acima: 'Parida infectada' };
+const GROUPS = [['todas', 'Todas'], ['lactantes', 'Lactantes'], ['paridas', 'Paridas (até 45 DEL)'], ['primiparas', 'Primíparas'], ['novilhas', 'Novilhas']];
+const STATUSES = [['todas', 'Todas'], ['sadias', 'Sadias'], ['curadas', 'Curadas'], ['nova', 'Novas infecções'], ['cronicas', 'Crônicas'], ['acima200', 'Acima da meta'],
+  ['paridas_sadias', 'Paridas sadias'], ['paridas_curadas', 'Paridas curadas'], ['paridas_infectadas', 'Paridas infectadas'], ['paridas_cronicas', 'Paridas crônicas'], ['novilhas_paridas_sadias', 'Primíparas paridas sadias'], ['novilhas_paridas_infectadas', 'Primíparas paridas infectadas']];
 async function viewControle() {
   if (!can('relatorios')) return (location.hash = '#/animais');
   shell('<h1>Relatório de controle leiteiro</h1><div class="muted">Carregando…</div>', 'controle');
@@ -554,9 +638,9 @@ async function viewControle() {
           ${kpi('Média de leite', k.avg_milk == null ? null : nf(k.avg_milk, 1) + ' kg')}${kpi('Média DEL', k.avg_del)}${kpi(`DEL &lt; 45 e CCS ≥ ${nf(r.goal)}`, k.early_high)}</div>
         <div class="card"><h2>Filtros</h2><div class="muted small">Grupo</div><div class="tabs" id="g">${GROUPS.map(([v, l]) => `<button data-v="${v}" class="${S.ctl.group === v ? 'on' : ''}">${l}</button>`).join('')}</div>
           <div class="muted small">Situação de qualidade do leite</div><div class="tabs" id="s">${STATUSES.map(([v, l]) => `<button data-v="${v}" class="${S.ctl.status === v ? 'on' : ''}">${l}</button>`).join('')}</div>
-          <p class="small muted">Meta de CCS: sadia = abaixo de ${nf(r.goal)} mil cél/mL · coleta mais recente: ${fdate(r.latest)}. Situação pelas duas últimas coletas (nova infecção, crônica e curada: regras provisórias). Grupos: lactantes = testadas na coleta mais recente; paridas = LAC 2 ou mais; primíparas = LAC 1.</p></div>
+          <p class="small muted">Meta de CCS: sadia = abaixo de ${nf(r.goal)} mil cél/mL · coleta mais recente: ${fdate(r.latest)}. Situação: CCS deste controle contra a última medição anterior da vaca. Paridas = vacas recém-paridas (até 45 dias em lactação); primíparas = 1ª lactação; lactantes = testadas no controle mais recente.</p></div>
         <div class="card"><h2>Vacas (${r.rows.length})</h2><div class="scroll"><table><tr><th>Brinco</th><th>LAC</th><th>DEL</th>${r.months.map((m) => `<th class="n">${mlabel(m)}</th>`).join('')}<th>Situação</th><th class="n">Produção</th><th class="n">Impacto tanque</th></tr>
-          ${r.rows.slice(0, 500).map((x) => { const [c, l] = QSTATUS[x.status] || ['', '—']; return `<tr><td><a href="#/animal/${x.id}">${esc(x.tag)}</a>${x.stale ? `<div class="small muted">${x.hint === 'pulou' ? 'pulou o último controle' : x.hint === 'seca' ? `sem teste há ${x.missed} controles: possível secagem` : `sem teste há ${x.missed} controles: saiu do rebanho?`}</div>` : ''}</td><td>${x.lac ?? '—'}</td><td>${x.del ?? '—'}</td>${x.months.map((v) => `<td class="n" style="${v != null && v >= r.goal ? 'color:var(--bad);font-weight:600' : ''}">${v == null ? '' : nf(v)}</td>`).join('')}<td>${c ? `<span class="chip ${c}">${l}</span>` : `<span class="muted small">${l}</span>`}</td><td class="n">${x.milk == null ? '—' : nf(x.milk, 1) + ' kg'}</td><td class="n">${x.impact == null ? '—' : nf(x.impact, 2) + '%'}</td></tr>`; }).join('')}</table></div>
+          ${r.rows.slice(0, 500).map((x) => { const [c, l0] = QSTATUS[x.status] || ['', '—']; const l = x.parida ? (PARIDA[x.status] || l0) : l0; return `<tr><td><a href="#/animal/${x.id}">${esc(x.tag)}</a>${x.stale ? `<div class="small muted">${x.hint === 'pulou' ? 'pulou o último controle' : x.hint === 'seca' ? `sem teste há ${x.missed} controles: possível secagem` : `sem teste há ${x.missed} controles: saiu do rebanho?`}</div>` : ''}</td><td>${x.lac ?? '—'}</td><td>${x.del ?? '—'}</td>${x.months.map((v) => `<td class="n" style="${v != null && v >= r.goal ? 'color:var(--bad);font-weight:600' : ''}">${v == null ? '' : nf(v)}</td>`).join('')}<td>${c ? `<span class="chip ${c}">${l}</span>` : `<span class="muted small">${l}</span>`}</td><td class="n">${x.milk == null ? '—' : nf(x.milk, 1) + ' kg'}</td><td class="n">${x.impact == null ? '—' : nf(x.impact, 2) + '%'}</td></tr>`; }).join('')}</table></div>
           ${r.rows.length > 500 ? '<p class="small muted">Mostrando as primeiras 500.</p>' : ''}${r.rows.length ? '' : '<p class="muted">Nenhuma vaca neste filtro.</p>'}</div>`}`;
       if (!r.latest) return;
       $('#g').onclick = (e) => { const v = e.target.dataset.v; if (v) { S.ctl.group = v; draw(); } };
@@ -603,7 +687,7 @@ function route() {
   if (!S.user) return viewLogin();
   const [path] = location.hash.slice(2).split('?'); const [page, arg] = path.split('/');
   if (S.user.must_change_password && page !== 'senha') return viewPassword(true);
-  const views = { painel: viewPainel, animais: viewAnimais, animal: () => viewAnimal(arg), lancar: viewLancar, importar: viewImportar, gestao: viewGestao, controle: viewControle, tanque: viewTanque, mais: viewMais, senha: () => viewPassword(false), config: viewConfig, usuarios: viewUsuarios, auditoria: viewAuditoria };
+  const views = { painel: viewPainel, animais: viewAnimais, animal: () => viewAnimal(arg), lancar: viewLancar, importar: viewImportar, gestao: viewGestao, anual: viewAnual, metas: viewMetas, controle: viewControle, tanque: viewTanque, mais: viewMais, senha: () => viewPassword(false), config: viewConfig, usuarios: viewUsuarios, auditoria: viewAuditoria };
   (views[page] || (can('relatorios') ? viewPainel : viewAnimais))();
 }
 addEventListener('hashchange', route);

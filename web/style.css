@@ -97,3 +97,14 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 .tile .d{font-size:.75rem}
 .reading{margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:8px}
 .reading li{line-height:1.45}
+
+.filter-panel{background:#0b4a5c;border-radius:var(--radius);padding:12px;margin-bottom:12px;color:#fff}
+.filter-panel label{color:#cfe3e8}
+.filter-panel .tabs button{background:#e8dcc3;color:#0b3543;border-color:#e8dcc3}
+.filter-panel .tabs button.on{background:var(--green);color:#fff;border-color:var(--green)}
+.tile .tm{font-size:.72rem;font-weight:700;color:var(--muted)}
+.tile .tv.ok{color:var(--green)} .tile .tv.bad{color:var(--bad)}
+.chip.curada{background:#dff1fb;color:#0a5a80}
+
+table.annual td,table.annual th{white-space:nowrap;font-size:.82rem}
+table.annual tr.sec td{background:var(--navy);color:#fff;font-weight:700;text-align:center}

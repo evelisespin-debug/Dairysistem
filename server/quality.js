@@ -246,13 +246,13 @@ export function qualityStatus(last, prev, goal) {
 
 const daysBetween = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5);
 
-// Grupos provisórios: lactantes = testada na coleta mais recente (a situação do cadastro nem sempre está em dia);
-// primíparas = LAC 1; paridas = LAC 2 ou mais; novilhas = situação "novilha".
-export function inGroup(a, group, current = true) {
+// Grupos (como no sistema DairyUp em uso): lactantes = testada na coleta mais recente (a situação do cadastro nem sempre está em dia);
+// paridas = vacas recém-paridas (DEL até 45); primíparas = LAC 1; novilhas = situação "novilha".
+export function inGroup(a, group, current = true, del = null) {
   switch (group) {
     case 'lactantes': return current;
     case 'primiparas': return a.lactation_number === 1;
-    case 'paridas': return a.lactation_number != null && a.lactation_number >= 2;
+    case 'paridas': return del != null && del <= 45;
     case 'novilhas': return a.status === 'novilha';
     default: return true;
   }
@@ -289,14 +289,15 @@ export async function milkControl(db, { group = 'todas', status = 'todas', lot }
   let rows = [];
   for (const a of byAnimal.values()) {
     const last = a.tests[a.tests.length - 1]; const prev = a.tests[a.tests.length - 2];
-    if (!inGroup(a, group, last.d === latest)) continue;
+    const delNow = a.calving_date ? daysBetween(a.calving_date, latest) : null;
+    if (!inGroup(a, group, last.d === latest, delNow)) continue;
     if (last.d !== latest && group !== 'todas') { /* mantém: vaca sem teste na última coleta segue listada */ }
     const st = qualityStatus(last.value, prev?.value, goal);
     const byMonth = {};
     for (const x of a.tests) byMonth[x.d.slice(0, 7)] = x.value;      // última do mês
     rows.push({
       id: a.id, tag: a.tag, lot: a.lot, lac: a.lactation_number,
-      del: a.calving_date ? daysBetween(a.calving_date, latest) : null,
+      del: delNow, parida: delNow != null && delNow <= 45,
       months: months.map((k) => byMonth[k] ?? null), status: st,
       last: last.value,
       stale: last.d !== latest, missed: controlDates.filter((d) => d > last.d).length, hint: absenceHint(controlDates.filter((d) => d > last.d).length), last_test: last.d, milk: last.d === latest ? milk.get(a.id) ?? null : null, impact: null,
@@ -307,8 +308,14 @@ export async function milkControl(db, { group = 'todas', status = 'todas', lot }
   if (tankSum > 0) rows.forEach((r) => { if (r.milk != null) r.impact = (100 * r.last * r.milk) / tankSum; });
   const dist = { sadia: 0, nova: 0, cronica: 0, curada: 0, acima: 0, sem_historico: 0 };
   rows.forEach((r) => { if (r.status) dist[r.status]++; });
-  const accept = { todas: () => true, sadias: (r) => r.status === 'sadia', curadas: (r) => r.status === 'curada', nova: (r) => r.status === 'nova',
-    cronicas: (r) => r.status === 'cronica', acima200: (r) => r.last >= goal }[status] || (() => true);
+  // "Sadias", "Curadas", "Novas infecções" e "Crônicas" são as vacas fora do início da lactação; as recém-paridas (DEL até 45) têm filtros próprios
+  const infected = (r) => r.status === 'nova' || r.status === 'cronica' || r.status === 'acima';
+  const accept = {
+    todas: () => true, acima200: (r) => r.last >= goal,
+    sadias: (r) => !r.parida && r.status === 'sadia', curadas: (r) => !r.parida && r.status === 'curada', nova: (r) => !r.parida && r.status === 'nova', cronicas: (r) => !r.parida && r.status === 'cronica',
+    paridas_sadias: (r) => r.parida && r.status === 'sadia', paridas_curadas: (r) => r.parida && r.status === 'curada', paridas_infectadas: (r) => r.parida && (r.status === 'nova' || r.status === 'acima'), paridas_cronicas: (r) => r.parida && r.status === 'cronica',
+    novilhas_paridas_sadias: (r) => r.parida && r.lac === 1 && r.status === 'sadia', novilhas_paridas_infectadas: (r) => r.parida && r.lac === 1 && infected(r),
+  }[status] || (() => true);
   const totalCows = rows.length;
   rows = rows.filter(accept);
   const dels = rows.map((r) => r.del).filter((x) => x != null);
