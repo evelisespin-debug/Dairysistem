@@ -1,10 +1,10 @@
 # Prompt para recriar o Painel Genômico (Agro Arkafla)
 
-Anexe ao novo chat: (1) a planilha de resultados genômicos (.xls/.xlsx) e (2) a imagem da logo. Depois cole o texto abaixo.
+Anexe ao novo chat a planilha de resultados genômicos (.xls/.xlsx). Depois cole o texto abaixo.
 
 ---
 
-Crie um **web software de página única (um arquivo HTML, como Artifact)** chamado **"Painel Genômico"**, com dashboard e filtros sobre a planilha genômica anexa (aba `Export`, uma linha por animal) e a logo anexa da **Agro Arkafla**. Todo o texto da interface em português do Brasil. Use o termo **"Touro"** (nunca "Pai") na interface. Os dados da planilha ficam embutidos no HTML; não precisa de servidor.
+Crie um **web software de página única (um arquivo HTML, como Artifact)** chamado **"Painel Genômico"**, com dashboard e filtros sobre a planilha genômica anexa (aba `Export`, uma linha por animal). Todo o texto da interface em português do Brasil. Use o termo **"Touro"** (nunca "Pai") na interface. Os dados da planilha ficam embutidos no HTML; não precisa de servidor.
 
 ## Dados
 Da aba `Export` use estas colunas: `ID`, `Dt nasc.`, `Pai` (nome do touro), `TPI`, `NM` (NM$), `Leite`, `Gor` (gordura kg), `Pro` (proteína kg), `%Gor`, `VP` (vida produtiva), `DPR`, `Tipo`, `C. Ub.` (úbere), `LIV` (longevidade), `C. PeP` (pés e pernas), `EST` (estatura), `BDE` (prof. corporal), `DFM` (forma leiteira), `UDP`, `RTP`, `TLG`, `TRW`, `MAST`, `MET`, `KET`, `HH1 HH3 HH4 HH5 HH6 DUMPS` (1 = portador), `betaC`, `kappaC`, `Touro enviado`, `Touro correto`.
@@ -21,7 +21,7 @@ Da aba `Export` use estas colunas: `ID`, `Dt nasc.`, `Pai` (nome do touro), `TPI
 - Claro: bg `#e6eaee`, surface `#f8f9fa`, ink `#1d2730`, muted `#5d6d7a`, line `#cfd7de`, strong `#2e4556`, mid `#7b93a5`, soft `#b3c1cc`, wash `#dde4ea`, acento verde-azulado `#23808f` (fundo do acento `#d6eaed`), ouro `#c79a1c`, prata `#94a3af`, bronze `#b47d4c`, alerta vermelho `#a8382c` (fundo `#efd9d5`).
 - Escuro: bg `#11171c`, surface `#192127`, ink `#e5ebef`, muted `#92a2ae`, line `#2a353e`, strong `#b9d4e1`, mid `#5d7b8f`, soft `#43596a`, wash `#232d35`, acento `#5cc2d1` (fundo `#1b3a40`), ouro `#e0b64a`, prata `#a9b6c1`, bronze `#d09a68`, alerta `#e9877b` (fundo `#3d2522`).
 - Base em cinza-ardósia; o acento verde-azulado só em aba ativa, etiquetas de filtro, destaques, linha do gráfico por ano e barras do ranking. Vermelho **só** para alertas (haplótipo, touro divergente). Cards com borda de 1px, raio 6px e sombra leve no claro.
-- Cabeçalho: logo em uma moldura branca arredondada (altura 80px, padding 5px 10px, borda) à esquerda, ao lado do título "Painel Genômico"; à direita, "Resultados genômicos · animais ativos · 27/08/2026 · N animais". Embuta a logo como data URI (recorte o espaço em branco da imagem e reduza a ~520px de largura).
+- Cabeçalho: título "Painel Genômico" à esquerda; à direita, "Resultados genômicos · animais ativos · 27/08/2026 · N animais". Sem logo.
 - Layout: coluna de filtros de 260px à esquerda (sticky) e conteúdo à direita; no celular (≤860px) tudo em uma coluna, filtros recolhidos atrás de um botão "Filtros (n ativos)". Sem rolagem horizontal; tabelas largas rolam dentro do próprio contêiner.
 
 ## Filtros (todos valem para todas as abas)
