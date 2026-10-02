@@ -6,8 +6,8 @@ const LOCK_MINUTES = 15;
 
 // Permissões por perfil. O financeiro é tratado à parte (can_see_finance).
 export const PERMS = {
-  dono:        ['ver_ficha', 'lancar', 'corrigir', 'relatorios', 'importar', 'exportar', 'apagar', 'usuarios', 'config', 'auditoria'],
-  encarregado: ['ver_ficha', 'lancar', 'corrigir', 'relatorios', 'importar'],
+  dono:        ['ver_ficha', 'lancar', 'corrigir', 'relatorios', 'importar', 'exportar', 'apagar', 'usuarios', 'config', 'auditoria', 'personalidade'],
+  encarregado: ['ver_ficha', 'lancar', 'corrigir', 'relatorios', 'importar', 'personalidade'],
   funcionario: ['ver_ficha', 'lancar'],
   veterinaria: ['ver_ficha', 'lancar', 'corrigir', 'relatorios', 'exportar', 'config'],
 };

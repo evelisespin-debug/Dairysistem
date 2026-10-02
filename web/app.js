@@ -79,6 +79,7 @@ function shell(html, active) {
   const reports = can('relatorios') ? [['anual', 'Painel anual'], ['controle', 'Controle leiteiro'], ['tanque', 'Tanque / laticínio']] : [];
   const more = [];
   if (can('config')) more.push(['config', 'Tipos de análise e limites'], ['metas', 'Metas da fazenda']);
+  if (can('personalidade')) more.push(['personalidade', 'Perfis de personalidade']);
   if (can('usuarios')) more.push(['usuarios', 'Usuários']);
   if (can('auditoria')) more.push(['auditoria', 'Registro de alterações']);
   more.push(['senha', 'Trocar senha / PIN']);
@@ -394,6 +395,7 @@ function viewMais() {
     <a class="item" href="#/senha"><span>Trocar senha / PIN</span><span>›</span></a>
     ${can('relatorios') ? '<a class="item" href="#/anual"><span>Painel de gestão anual</span><span>›</span></a><a class="item" href="#/controle"><span>Controle leiteiro (por vaca)</span><span>›</span></a><a class="item" href="#/tanque"><span>Tanque / laticínio</span><span>›</span></a>' : ''}
     ${can('config') ? '<a class="item" href="#/config"><span>Tipos de análise e limites de alerta</span><span>›</span></a>' : ''}
+    ${can('personalidade') ? '<a class="item" href="#/personalidade"><span>Perfis de personalidade (teste dos 16 tipos)</span><span>›</span></a>' : ''}
     ${can('usuarios') ? '<a class="item" href="#/usuarios"><span>Usuários da fazenda</span><span>›</span></a>' : ''}
     ${can('auditoria') ? '<a class="item" href="#/auditoria"><span>Registro de alterações</span><span>›</span></a>' : ''}
     ${can('exportar') ? '<a class="item" href="#" id="exp"><span>Exportar todos os dados (planilha)</span><span>⬇</span></a>' : ''}
@@ -681,13 +683,124 @@ const statusClient = (t, v) => {
   return hi ? 'alerta' : wa ? 'atencao' : 'ok';
 };
 
+// ---------------- teste de personalidade (16 tipos) ----------------
+const POLE_PT = { E: 'Extroversão', I: 'Introversão', S: 'Sensação', N: 'Intuição', T: 'Pensamento', F: 'Sentimento', J: 'Julgamento', P: 'Percepção' };
+const DIM_PT = { IE: 'Energia', SN: 'Percepção', FT: 'Decisão', JP: 'Estilo de vida' };
+const dimBar = (d) => `<div class="dimrow"><span class="l ${d.letter === d.low ? 'b' : ''}">${POLE_PT[d.low]} ${d.pct_low}%</span>
+  <div class="dimbar"><i style="width:${d.pct_low}%"></i><u></u></div><span class="r ${d.letter === d.high ? 'b' : ''}">${d.pct_high}% ${POLE_PT[d.high]}</span></div>`;
+const farmHead = (sub) => `<div class="repHead"><img src="/farm/logo" alt=""><div><b>${esc(S.farm.name)}</b><div class="muted small">${esc(sub)}</div></div></div>`;
+const printBtn = '<button type="button" class="noprint" id="prt">Imprimir / salvar em PDF</button>';
+const plist = (a) => `<ul>${a.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`;
+
+async function viewPersonalidade() {
+  if (!can('personalidade')) return (location.hash = '#/mais');
+  shell('<div class="muted">Carregando…</div>', 'mais');
+  try {
+    const sector = S.pSector || '';
+    const [list, sectors] = await Promise.all([api('/api/personality' + (sector ? `?sector=${encodeURIComponent(sector)}` : '')), api('/api/personality/sectors')]);
+    const tabs = [['', 'Todos'], ...sectors.map((x) => [x, x])];
+    $('main').innerHTML = `<p><a href="#/mais">← Mais</a></p><h1>Perfis de personalidade</h1>
+      <div class="card"><div class="row"><a class="fit" href="#/personalidade/novo"><button class="primary" type="button">+ Novo teste</button></a>
+        <a class="fit" href="#/personalidade/equipe"><button type="button">Apresentação da equipe</button></a>
+        <button type="button" class="fit" id="csv" ${list.length ? '' : 'disabled'}>Baixar planilha</button></div></div>
+      <div class="tabs" id="sec">${tabs.map(([v, l]) => `<button data-v="${esc(v)}" class="${v.toLowerCase() === sector.toLowerCase() ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
+      <div class="card scroll">${list.length ? `<table><tr><th>Nome</th><th>Setor</th><th>Perfil</th><th>Data</th></tr>${list.map((r) => `<tr><td><a href="#/personalidade/${r.id}">${esc(r.person_name)}</a></td><td>${esc(r.sector)}</td><td><span class="chip curada">${esc(r.type)}</span> <span class="muted small">${esc(r.nickname)}</span></td><td class="small">${new Date(r.taken_at).toLocaleDateString('pt-BR')}</td></tr>`).join('')}</table>` : '<p class="muted">Nenhum teste feito ainda. Toque em “Novo teste”.</p>'}</div>`;
+    document.querySelectorAll('#sec button').forEach((b) => (b.onclick = () => { S.pSector = b.dataset.v; viewPersonalidade(); }));
+    $('#csv').onclick = () => {
+      const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const csv = '﻿' + [['Nome', 'Setor', 'Perfil', 'Nome do perfil', 'Data'], ...list.map((r) => [r.person_name, r.sector, r.type, r.nickname, new Date(r.taken_at).toLocaleDateString('pt-BR')])].map((l) => l.map(q).join(';')).join('\r\n');
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); a.download = `perfis-${S.farm.slug}.csv`; a.click();
+    };
+  } catch (e) { $('main').innerHTML = err(e); }
+}
+
+async function viewPersonalidadeNovo() {
+  if (!can('personalidade')) return (location.hash = '#/mais');
+  shell('<div class="muted">Carregando…</div>', 'mais');
+  try {
+    const [test, sectors] = await Promise.all([api('/api/personality/test'), api('/api/personality/sectors')]);
+    const { min, max } = test.scale; const answers = Array(test.items.length).fill(null);
+    const step1 = () => {
+      $('main').innerHTML = `<p><a href="#/personalidade">← Perfis</a></p><h1>Novo teste</h1><form id="f" class="card"><h2>Quem vai fazer o teste?</h2>
+        <label>Nome</label><input id="pn" required maxlength="120" autocomplete="off">
+        <label>Setor</label><input id="ps" required maxlength="80" list="secs" autocomplete="off" placeholder="Ex.: Ordenha, Bezerreiro, Escritório…"><datalist id="secs">${sectors.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+        <p class="muted small">São ${test.items.length} perguntas, cerca de 5 minutos. Em cada uma, a pessoa marca onde se encaixa entre as duas frases (1 = a frase da esquerda, 5 = a da direita). Não há resposta certa: é para responder como a pessoa é, e não como gostaria de ser.</p>
+        <div style="margin-top:12px"><button class="primary">Começar</button></div></form>`;
+      $('#f').onsubmit = (ev) => { ev.preventDefault(); S.pForm = { name: $('#pn').value.trim(), sector: $('#ps').value.trim() }; step2(); };
+    };
+    const step2 = () => {
+      $('main').innerHTML = `<p><a href="#/personalidade">← Cancelar</a></p><h1>${esc(S.pForm.name)} <span class="muted small">· ${esc(S.pForm.sector)}</span></h1>
+        <div class="card prog noprint"><div class="dimbar"><i id="pg" style="width:0%"></i></div><div class="small muted" id="pgt">0 de ${test.items.length} respondidas</div></div>
+        <form id="q">${test.items.map((it, i) => `<div class="card qitem" id="q${i}"><div class="qn">${it.n} de ${test.items.length}</div><div class="qtxt"><span>${esc(it.left)}</span><span>${esc(it.right)}</span></div>
+          <div class="scale" role="radiogroup">${Array.from({ length: max - min + 1 }, (_, k) => min + k).map((v) => `<button type="button" data-i="${i}" data-v="${v}" aria-label="${v}">${v}</button>`).join('')}</div></div>`).join('')}
+        <div id="e"></div><button class="primary" id="done" disabled>Ver resultado</button></form><p class="muted small">${esc(test.credit)}</p>`;
+      document.querySelectorAll('.scale button').forEach((b) => (b.onclick = () => {
+        const i = +b.dataset.i; answers[i] = +b.dataset.v;
+        b.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+        const n = answers.filter((x) => x != null).length;
+        $('#pg').style.width = `${(n / answers.length) * 100}%`; $('#pgt').textContent = `${n} de ${answers.length} respondidas`; $('#done').disabled = n < answers.length;
+        const nx = answers.findIndex((x) => x == null); if (nx > i) $(`#q${nx}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }));
+      $('#q').onsubmit = async (ev) => {
+        ev.preventDefault(); $('#done').disabled = true;
+        try { const r = await api('/api/personality', { method: 'POST', body: { person_name: S.pForm.name, sector: S.pForm.sector, answers } }); S.pSector = ''; location.hash = `#/personalidade/${r.id}`; }
+        catch (e) { $('#e').innerHTML = err(e); $('#done').disabled = false; }
+      };
+    };
+    step1();
+  } catch (e) { $('main').innerHTML = err(e); }
+}
+
+async function viewPersonalidadeResultado(id) {
+  if (!can('personalidade')) return (location.hash = '#/mais');
+  shell('<div class="muted">Carregando…</div>', 'mais');
+  try {
+    const r = await api(`/api/personality/${id}`); const c = r.conclusion; const test = await api('/api/personality/test');
+    $('main').innerHTML = `<p class="noprint"><a href="#/personalidade">← Perfis</a></p>
+      <div class="card report">${farmHead('Perfil de personalidade')}
+        <div class="who2"><div><div class="muted small">Nome</div><b>${esc(r.person_name)}</b></div><div><div class="muted small">Setor</div><b>${esc(r.sector)}</b></div><div><div class="muted small">Data</div><b>${new Date(r.taken_at).toLocaleDateString('pt-BR')}</b></div></div>
+        <div class="big">${esc(r.type)}</div><h2 class="nick">${esc(r.nickname)}</h2><p>${esc(c.summary)}</p>
+        <h3>Como a pessoa respondeu</h3>${['IE', 'SN', 'FT', 'JP'].map((k) => `<div class="muted small">${DIM_PT[k]}</div>${dimBar(r.scores[k])}`).join('')}
+        <ul class="small">${c.dimension_lines.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+        <div class="grid"><div><h3>Pontos fortes</h3>${plist(c.strengths)}</div><div><h3>Pontos de atenção</h3>${plist(c.attention)}</div><div><h3>Como trabalhar melhor</h3>${plist(c.tips)}</div></div>
+        <div class="msg info small">${esc(c.note)}</div><p class="muted small">${esc(test.credit)}</p></div>
+      <div class="row noprint"><div class="fit">${printBtn}</div><a class="fit" href="#/personalidade/novo"><button type="button" class="primary">+ Novo teste</button></a>
+        ${S.user.role === 'dono' ? '<button type="button" class="fit" id="del">Apagar</button>' : ''}</div>`;
+    $('#prt').onclick = () => print();
+    if ($('#del')) $('#del').onclick = async () => { if (!confirm('Apagar este teste? (fica registrado na auditoria)')) return; try { await api(`/api/personality/${id}`, { method: 'DELETE' }); location.hash = '#/personalidade'; } catch (e) { toast(e.message); } };
+  } catch (e) { $('main').innerHTML = err(e); }
+}
+
+async function viewPersonalidadeEquipe() {
+  if (!can('personalidade')) return (location.hash = '#/mais');
+  shell('<div class="muted">Carregando…</div>', 'mais');
+  try {
+    const sector = S.pSector || '';
+    const [t, sectors] = await Promise.all([api('/api/personality/team' + (sector ? `?sector=${encodeURIComponent(sector)}` : '')), api('/api/personality/sectors')]);
+    const max = Math.max(1, ...t.by_type.map((x) => x.n));
+    $('main').innerHTML = `<p class="noprint"><a href="#/personalidade">← Perfis</a></p>
+      <div class="tabs noprint" id="sec">${[['', 'Fazenda toda'], ...sectors.map((x) => [x, x])].map(([v, l]) => `<button data-v="${esc(v)}" class="${v.toLowerCase() === sector.toLowerCase() ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
+      <div class="card report">${farmHead(`Perfil da equipe — ${sector || 'todos os setores'} · ${new Date().toLocaleDateString('pt-BR')}`)}
+        <div class="grid"><div class="kpi"><div class="l">Pessoas avaliadas</div><div class="v">${t.total}</div></div><div class="kpi"><div class="l">Perfis diferentes</div><div class="v">${t.by_type.length}</div></div></div>
+        ${t.total ? `<h3>Quantas pessoas em cada perfil</h3>${t.by_type.map((x) => `<div class="tyrow"><span><b>${esc(x.type)}</b> <span class="muted small">${esc(x.nickname)}</span></span><div class="dimbar"><i style="width:${(x.n / max) * 100}%"></i></div><b>${x.n}</b></div>`).join('')}
+        <h3>Equilíbrio do grupo</h3>${Object.entries(t.dims).map(([k, d]) => `<div class="muted small">${DIM_PT[k]}</div><div class="dimrow"><span class="l">${POLE_PT[d.low]} ${d.n_low}</span><div class="dimbar"><i style="width:${d.n_low / t.total * 100}%"></i><u></u></div><span class="r">${d.n_high} ${POLE_PT[d.high]}</span></div>`).join('')}
+        <h3>Conclusão</h3><ul>${t.conclusion.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+        <h3>Pessoas</h3><div class="scroll"><table><tr><th>Nome</th><th>Setor</th><th>Perfil</th></tr>${t.people.map((r) => `<tr><td>${esc(r.person_name)}</td><td>${esc(r.sector)}</td><td><b>${esc(r.type)}</b> <span class="muted small">${esc(r.nickname)}</span></td></tr>`).join('')}</table></div>` : '<p class="muted">Ainda não há testes neste setor.</p>'}
+        <div class="msg info small">${esc(t.note)}</div></div>
+      <div class="noprint">${printBtn}</div>`;
+    document.querySelectorAll('#sec button').forEach((b) => (b.onclick = () => { S.pSector = b.dataset.v; viewPersonalidadeEquipe(); }));
+    $('#prt').onclick = () => print();
+  } catch (e) { $('main').innerHTML = err(e); }
+}
+
 // ---------------- rotas ----------------
 function route() {
   killCharts();
   if (!S.user) return viewLogin();
   const [path] = location.hash.slice(2).split('?'); const [page, arg] = path.split('/');
   if (S.user.must_change_password && page !== 'senha') return viewPassword(true);
-  const views = { painel: viewPainel, animais: viewAnimais, animal: () => viewAnimal(arg), lancar: viewLancar, importar: viewImportar, gestao: viewGestao, anual: viewAnual, metas: viewMetas, controle: viewControle, tanque: viewTanque, mais: viewMais, senha: () => viewPassword(false), config: viewConfig, usuarios: viewUsuarios, auditoria: viewAuditoria };
+  const views = { painel: viewPainel, animais: viewAnimais, animal: () => viewAnimal(arg), lancar: viewLancar, importar: viewImportar, gestao: viewGestao, anual: viewAnual, metas: viewMetas, controle: viewControle, tanque: viewTanque, mais: viewMais, senha: () => viewPassword(false), config: viewConfig, usuarios: viewUsuarios, auditoria: viewAuditoria,
+    personalidade: () => (arg === 'novo' ? viewPersonalidadeNovo() : arg === 'equipe' ? viewPersonalidadeEquipe() : arg ? viewPersonalidadeResultado(+arg) : viewPersonalidade()) };
   (views[page] || (can('relatorios') ? viewPainel : viewAnimais))();
 }
 addEventListener('hashchange', route);

@@ -37,6 +37,13 @@ Formato "longo" (colunas Tipo + Valor) também funciona. Reenviar o mesmo arquiv
 **Relatórios oficiais do controle leiteiro (APCBRH)** são reconhecidos sozinhos: o *Relatório 2* (Sumário de CCS e produção: 12 controles, CCS, leite, gordura, proteína, LAC, parto, registro e tanque) e o *Relatório 2.2* (Impacto da CCS no tanque: lote, parto, produção). Vaca marcada "BAIXA" entra como descartada. O impacto no tanque usa a mesma conta do relatório oficial (CCS × leite ÷ soma de CCS × leite; conferida em 404 vacas). Exemplos em `docs/exemplos/`. Para o mapa do leite do laticínio, escolha "Mapa do leite (tanque)".
 Novas análises (ureia, lactose…) são criadas na tela **Mais → Tipos de análise**, sem mexer no código.
 
+## Perfis de personalidade (teste dos 16 tipos)
+Em **Mais → Perfis de personalidade** (dono e encarregado): cadastra **nome e setor**, a pessoa responde 32 perguntas e o sistema mostra o **tipo (ex.: ESFJ)**,
+a **conclusão do perfil** (pontos fortes, atenção, como trabalhar melhor) e guarda tudo. A **apresentação da equipe** acumula os resultados (por setor ou da fazenda toda),
+com distribuição dos tipos, equilíbrio do grupo e conclusão; ambas imprimem / salvam em PDF e levam o nome e o logo da fazenda. Cada fazenda tem seu banco: os registros não se misturam.
+O teste é o **OEJTS 1.2** (Eric Jorgenson, openpsychometrics.org, licença **CC BY-NC-SA 4.0 — uso não comercial, com atribuição**), traduzido livremente; **não é o MBTI oficial**.
+Perguntas e fórmulas ficam em `server/personality/oejts-1.2.pt.json` (para usar outro teste, troque o arquivo). Não use o resultado, sozinho, para contratar ou demitir.
+
 ## Perfis
 | Perfil | Pode |
 |---|---|

@@ -12,6 +12,7 @@ import { readRaw, tableFromRaw, buildRecords } from './importer.js';
 import { parseApcbrh } from './apcbrh.js';
 import * as Q from './quality.js';
 import { management, getTargets, DEFAULT_TARGETS } from './management.js';
+import * as P from './personality.js';
 
 const STATUS = ['lactacao', 'seca', 'novilha', 'bezerra', 'descartada', 'vendida', 'morta'];
 
@@ -451,6 +452,55 @@ export async function buildApp({ pool, farm, logger = false }) {
     (await pool.query(
       `select l.id, l.at, l.action, l.entity, l.entity_id, l.changes, u.name as user_name
          from audit_log l left join users u on u.id = l.user_id order by l.id desc limit $1`, [Math.min(+req.query.limit || 100, 500)])).rows);
+
+  // ---------- teste de personalidade (16 tipos) ----------
+  const personRow = (r) => ({ id: +r.id, person_name: r.person_name, sector: r.sector, type: r.type, nickname: P.TYPES[r.type]?.[0], scores: r.scores, taken_at: r.taken_at, taken_by: r.taken_by_name });
+  const personSelect = `select t.*, u.name as taken_by_name from personality_tests t left join users u on u.id = t.taken_by`;
+  app.get('/api/personality/test', { preHandler: guard('personalidade') }, async () => P.publicTest());
+  app.get('/api/personality/sectors', { preHandler: guard('personalidade') }, async () =>
+    (await pool.query('select min(sector) as sector from personality_tests where deleted_at is null group by lower(sector) order by 1')).rows.map((r) => r.sector));
+  app.get('/api/personality', { preHandler: guard('personalidade') }, async (req) => {
+    const sector = String(req.query.sector || '').trim();
+    const { rows } = sector
+      ? await pool.query(`${personSelect} where t.deleted_at is null and lower(t.sector) = lower($1) order by t.taken_at desc limit 1000`, [sector])
+      : await pool.query(`${personSelect} where t.deleted_at is null order by t.taken_at desc limit 1000`);
+    return rows.map(personRow);
+  });
+  app.get('/api/personality/team', { preHandler: guard('personalidade') }, async (req) => {
+    const sector = String(req.query.sector || '').trim();
+    const { rows } = sector
+      ? await pool.query(`${personSelect} where t.deleted_at is null and lower(t.sector) = lower($1) order by t.person_name`, [sector])
+      : await pool.query(`${personSelect} where t.deleted_at is null order by t.person_name`);
+    // pessoa que refez o teste: vale o mais recente
+    const latest = new Map();
+    for (const r of rows.sort((a, b) => a.taken_at - b.taken_at)) latest.set(`${r.person_name.toLowerCase()}|${r.sector.toLowerCase()}`, r);
+    const people = [...latest.values()].sort((a, b) => a.person_name.localeCompare(b.person_name));
+    return { farm: farm.name, sector: sector || null, ...P.teamSummary(people), people: people.map(personRow) };
+  });
+  app.get('/api/personality/:id', { preHandler: guard('personalidade') }, async (req, reply) => {
+    const { rows } = await pool.query(`${personSelect} where t.id = $1 and t.deleted_at is null`, [+req.params.id]);
+    if (!rows.length) return fail(reply, 404, 'Teste não encontrado.');
+    return { ...personRow(rows[0]), poles: P.POLE, conclusion: P.conclusion(rows[0].type, rows[0].scores) };
+  });
+  app.post('/api/personality', { preHandler: guard('personalidade') }, async (req, reply) => {
+    const b = req.body || {};
+    const name = String(b.person_name || '').trim(); const sector = String(b.sector || '').trim();
+    if (!name || !sector) return fail(reply, 400, 'Informe o nome e o setor.');
+    if (name.length > 120 || sector.length > 80) return fail(reply, 400, 'Nome ou setor longo demais.');
+    const r = P.score(b.answers);
+    if (!r) return fail(reply, 400, 'Responda todas as perguntas (notas de 1 a 5).');
+    const { rows } = await pool.query(
+      `insert into personality_tests(person_name, sector, test_key, type, scores, answers, taken_by) values ($1,$2,$3,$4,$5,$6,$7) returning *`,
+      [name, sector, P.TEST.key, r.type, JSON.stringify(r.dims), JSON.stringify(b.answers), req.user.id]);
+    await audit(pool, req.user.id, 'criar', 'personality_test', rows[0].id, { pessoa: name, setor: sector, tipo: r.type });
+    return { ...personRow({ ...rows[0], taken_by_name: req.user.name }), poles: P.POLE, conclusion: P.conclusion(r.type, r.dims) };
+  });
+  app.delete('/api/personality/:id', { preHandler: guard('apagar') }, async (req, reply) => {
+    const { rowCount } = await pool.query('update personality_tests set deleted_at = now() where id = $1 and deleted_at is null', [+req.params.id]);
+    if (!rowCount) return fail(reply, 404, 'Teste não encontrado.');
+    await audit(pool, req.user.id, 'apagar', 'personality_test', req.params.id);
+    return { ok: true };
+  });
 
   // ---------- site (PWA) ----------
   const web = path.join(ROOT, 'web');
