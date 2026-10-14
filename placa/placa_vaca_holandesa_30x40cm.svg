@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300mm" height="400mm" viewBox="0 0 300 400">
+  <defs>
+    <clipPath id="oval"><ellipse cx="150" cy="195" rx="118" ry="90"/></clipPath>
+    <pattern id="stripes" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="14" height="14" fill="#FFC20E"/><rect width="7" height="14" fill="#1a1a1a"/>
+    </pattern>
+  </defs>
+  <!-- fundo e moldura -->
+  <rect width="300" height="400" fill="#FFF8E7"/>
+  <rect x="6" y="6" width="288" height="388" rx="14" fill="none" stroke="#1F5130" stroke-width="5"/>
+  <!-- faixa de atenção -->
+  <rect x="16" y="16" width="268" height="8" fill="url(#stripes)"/>
+  <rect x="16" y="24" width="268" height="66" fill="#FFC20E"/>
+  <rect x="16" y="90" width="268" height="8" fill="url(#stripes)"/>
+  <g transform="translate(46 57)">
+    <polygon points="0,-22 24,20 -24,20" fill="#1a1a1a" stroke="#1a1a1a" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="0,-15 17,15 -17,15" fill="#FFC20E"/>
+    <rect x="-1.8" y="-6" width="3.6" height="12" rx="1.5" fill="#1a1a1a"/><circle cx="0" cy="10.5" r="2.2" fill="#1a1a1a"/>
+  </g>
+  <g font-family="Arial Black, Arial, Helvetica, sans-serif" font-weight="900" fill="#1a1a1a" text-anchor="middle">
+    <text x="175" y="58" font-size="34">ATENÇÃO!</text>
+    <text x="175" y="80" font-size="10.5" font-family="Arial, Helvetica, sans-serif" font-weight="bold">CUIDADO AO MANEJAR O ANIMAL</text>
+  </g>
+  <!-- cenário -->
+  <ellipse cx="150" cy="195" rx="118" ry="90" fill="#CFE8F5"/>
+  <g clip-path="url(#oval)">
+    <circle cx="232" cy="140" r="14" fill="#FFE27A"/>
+    <path d="M0 235 Q80 222 150 234 T300 230 V300 H0Z" fill="#7CBF4A"/>
+    <rect x="0" y="252" width="300" height="60" fill="#5FA83A"/>
+    <g stroke="#3F7F27" stroke-width="1.2" stroke-linecap="round">
+      <path d="M60 262l-2-7M64 262l1-6M200 268l-2-7M205 268l2-6M110 272l-1-6M240 262l-2-6"/>
+    </g>
+  </g>
+  <ellipse cx="150" cy="195" rx="118" ry="90" fill="none" stroke="#1F5130" stroke-width="3"/>
+
+  <!-- VACA HOLANDESA -->
+  <g transform="translate(11 -24)" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <!-- sombra -->
+    <ellipse cx="140" cy="277" rx="95" ry="6" fill="#3F7F27" stroke="none" opacity=".6"/>
+    <!-- rabo -->
+    <path d="M232 178 Q250 190 246 232" fill="none" stroke-width="3"/>
+    <path d="M246 228 q-6 6 -2 18 q8 -2 8 -16z" fill="#1a1a1a"/>
+    <!-- pernas traseiras -->
+    <rect x="188" y="225" width="13" height="48" rx="3" fill="#fff"/>
+    <rect x="205" y="225" width="13" height="48" rx="3" fill="#fff"/>
+    <rect x="188" y="266" width="13" height="8" rx="2" fill="#1a1a1a"/>
+    <rect x="205" y="266" width="13" height="8" rx="2" fill="#1a1a1a"/>
+    <!-- pernas dianteiras -->
+    <rect x="90" y="225" width="13" height="48" rx="3" fill="#fff"/>
+    <rect x="107" y="225" width="13" height="48" rx="3" fill="#fff"/>
+    <rect x="90" y="266" width="13" height="8" rx="2" fill="#1a1a1a"/>
+    <rect x="107" y="266" width="13" height="8" rx="2" fill="#1a1a1a"/>
+    <!-- úbere -->
+    <path d="M170 228 q0 18 15 18 q15 0 15 -18z" fill="#F4A6B0"/>
+    <path d="M176 245 v6M185 246 v6M194 245 v6" stroke="#E07F8D" stroke-width="3"/>
+    <!-- corpo -->
+    <path id="corpo" d="M80 178 Q80 160 102 158 L205 158 Q234 160 236 186 Q238 216 216 232 L112 232 Q82 230 80 205 Z" fill="#fff"/>
+    <!-- manchas -->
+    <g fill="#1a1a1a" stroke="none">
+      <path d="M110 160 Q130 156 142 166 Q150 182 132 190 Q112 194 106 178 Z"/>
+      <path d="M170 158 Q200 156 214 170 Q222 190 205 196 Q184 198 172 184 Q164 170 170 158Z"/>
+      <path d="M150 212 Q172 204 186 216 Q190 230 170 232 L152 232 Q142 224 150 212Z"/>
+      <path d="M222 205 Q236 205 234 222 Q226 232 216 232 Q214 214 222 205Z"/>
+    </g>
+    <path d="M80 178 Q80 160 102 158 L205 158 Q234 160 236 186 Q238 216 216 232 L112 232 Q82 230 80 205 Z" fill="none"/>
+    <!-- pescoço + cabeça -->
+    <path d="M70 172 Q92 160 104 170 L102 215 Q94 232 82 228 Z" fill="#fff"/>
+    <path d="M62 168 Q86 163 92 186 L82 226 Q72 248 48 246 Q30 243 33 226 L50 182 Q54 171 62 168Z" fill="#fff"/>
+    <!-- mancha na cabeça -->
+    <path d="M62 168 Q80 165 88 178 Q84 192 72 196 Q58 190 56 176Z" fill="#1a1a1a" stroke="none"/>
+    <path d="M62 168 Q86 163 92 186 L82 226 Q72 248 48 246 Q30 243 33 226 L50 182 Q54 171 62 168Z" fill="none"/>
+    <!-- focinho -->
+    <path d="M34 226 Q30 242 48 246 Q70 248 78 230 Q60 226 34 226Z" fill="#F4A6B0"/>
+    <circle cx="42" cy="236" r="2" fill="#1a1a1a" stroke="none"/><circle cx="52" cy="240" r="2" fill="#1a1a1a" stroke="none"/>
+    <!-- orelha -->
+    <path d="M90 176 Q112 166 118 176 Q112 188 92 186Z" fill="#1a1a1a"/>
+    <!-- olho -->
+    <circle cx="70" cy="205" r="4" fill="#fff" stroke-width="1.5"/><circle cx="69" cy="205.5" r="2" fill="#1a1a1a" stroke="none"/>
+    <!-- sino/coleira -->
+    <path d="M86 214 Q94 224 102 214" fill="none" stroke="#C0392B" stroke-width="5"/>
+    <circle cx="94" cy="226" r="4.5" fill="#FFC20E"/>
+  </g>
+
+  <!-- painel de texto -->
+  <rect x="16" y="296" width="268" height="88" rx="10" fill="#1F5130"/>
+  <g font-family="Arial, Helvetica, sans-serif" text-anchor="middle">
+    <text x="150" y="321" font-size="21" font-weight="900" fill="#FFC20E" font-family="Arial Black, Arial, sans-serif">MANEJE COM CALMA</text>
+  </g>
+  <g font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" fill="#fff">
+    <circle cx="34" cy="336" r="2.5" fill="#FFC20E"/><text x="42" y="340">Aproxime-se devagar e fale baixo</text>
+    <circle cx="34" cy="350" r="2.5" fill="#FFC20E"/><text x="42" y="354">Não grite nem bata no animal</text>
+    <circle cx="34" cy="364" r="2.5" fill="#FFC20E"/><text x="42" y="368">Respeite o espaço de fuga do animal</text>
+    <text x="150" y="379" font-size="9.5" text-anchor="middle" fill="#FFE27A" font-weight="normal">Vaca tranquila produz mais e protege você.</text>
+  </g>
+  <rect x="16" y="388" width="0" height="0"/>
+</svg>
